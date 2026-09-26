@@ -124,7 +124,7 @@ func (s LevelSet) String() string {
 // computed result.
 type Topology uint16
 
-// The reserved topology identifiers this module names, from RFC 5120
+// The reserved topology identifiers this package names, from RFC 5120
 // section 7.5. TopologyStandard carries IPv4 unicast and is the topology
 // a Neighbor which sends no multi-topology TLV participates in.
 const (
