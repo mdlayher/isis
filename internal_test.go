@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// The tests in this file call unexported functions directly. Every other
-// test is in package isis_test and uses only the exported API.
+// The tests in this file call unexported functions directly, as do those
+// in internal_linux_test.go. Every other test is in package isis_test and
+// uses only the exported API.
 
 func Test_pduLength(t *testing.T) {
 	t.Parallel()

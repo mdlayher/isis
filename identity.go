@@ -191,11 +191,11 @@ func (a AreaAddress) String() string {
 	return sb.String()
 }
 
-// ParseNET parses a network entity title in the conventional encoding
-// FRR's "net" statement and Cisco's "net" command take: hexadecimal
-// octets separated by periods, as in "49.0001.0000.0000.0001.00". The
-// trailing NSEL octet must be zero, the six octets before it are the
-// SystemID, and everything before those is the AreaAddress.
+// ParseNET parses a network entity title in its conventional encoding:
+// hexadecimal octets separated by periods, as in
+// "49.0001.0000.0000.0001.00". The trailing NSEL octet must be zero, the
+// six octets before it are the SystemID, and everything before those is
+// the AreaAddress.
 func ParseNET(s string) (AreaAddress, SystemID, error) {
 	b, err := hex.DecodeString(strings.ReplaceAll(s, ".", ""))
 	if errors.Is(err, hex.ErrLength) {

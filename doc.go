@@ -12,7 +12,7 @@
 //     encoding.
 //   - [Transport] carries PDUs between one Circuit and the link it
 //     attaches to, with [ErrDropped] for a frame an implementation
-//     discards.
+//     discards. [ListenEthernet] opens the Ethernet implementation.
 //
 // # Glossary
 //

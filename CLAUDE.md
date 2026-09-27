@@ -39,7 +39,10 @@ Blank lines:
   aligns nothing it can keep on a single line. A literal setting one field
   stays inline. Where that would expand a literal in the middle of a call
   or a condition, name the value on the line above instead, which is the
-  case for a name used once that the inlining rule allows.
+  case for a name used once that the inlining rule allows. The other
+  exception is an element of a listing whose rows are the unit, such as
+  one instruction of a BPF program: there one row per line is what reads,
+  and the distance between rows is what a reader checks.
 
 Declaration layout:
 

@@ -3,8 +3,8 @@ package isis
 import "errors"
 
 // A Transport carries IS-IS PDUs between one Circuit and the link it
-// attaches to. This package implements one for Ethernet with a Linux
-// AF_PACKET socket.
+// attaches to. [ListenEthernet] opens one over a Linux AF_PACKET socket;
+// callers may supply their own, such as an in-memory link for tests.
 //
 // Framing belongs to the implementation: the LLC header, the 802.3 length
 // field, multicast memberships, and filtering a Circuit's own

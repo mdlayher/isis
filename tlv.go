@@ -450,8 +450,7 @@ func ThreeWayAdjacencyTLV(a ThreeWayAdjacency) (TLV, error) {
 // code 240. RFC 5303 lets a sender omit the trailing fields it does not
 // know, so the 1, 5, 11, and 15 octet forms all parse and an omitted
 // field is zero. A neighbor system ID which is present but zero names no
-// system and is an error, as FRR and holo both refuse a hello carrying
-// one.
+// system and is an error.
 func (t TLV) ThreeWayAdjacency() (ThreeWayAdjacency, error) {
 	if err := t.expect(TLVThreeWayAdjacency); err != nil {
 		return ThreeWayAdjacency{}, err

@@ -14,3 +14,21 @@ it:
   `TLV.AreaAddresses`, with their binary encoding.
 - `Transport` carries PDUs between one Circuit and the link it attaches to,
   with `ErrDropped` for a frame an implementation discards.
+  `ListenEthernet` opens the Ethernet implementation.
+
+## Platform support
+
+The codec and `Transport` layers are portable Go. `ListenEthernet`, the
+Ethernet packet socket, is only supported on Linux; elsewhere, it returns an
+error which wraps `errors.ErrUnsupported`.
+
+## Testing
+
+The package is tested against the standards and against itself:
+
+- Codec tests encode and parse a hello assembled octet by octet from
+  ISO 10589 and the RFCs defining its TLVs, requiring a byte-for-byte round
+  trip.
+- Fuzz targets cover hello parsing, the TLV walk, and the typed TLV parsers.
+- `Transport` conformance tests run against an in-memory link, and the
+  Ethernet packet filter runs in a software BPF machine.
