@@ -39,10 +39,11 @@ func (l LSPID) String() string {
 	return fmt.Sprintf("%s.%02x-%02x", l.SystemID, l.Pseudonode, l.Fragment)
 }
 
-// An SNPA is a Neighbor's link layer address on a Circuit: the
-// destination an Instance puts on a frame. IS-IS over Ethernet, including
-// the RFC 5309 point to point form, addresses frames by six octet link
-// layer address, so an SNPA is six octets.
+// An SNPA, a subnetwork point of attachment, is a Neighbor's link layer
+// address on a Circuit: the destination an Instance puts on a frame.
+// IS-IS over Ethernet, including the RFC 5309 point to point form,
+// addresses frames by six octet link layer address, so an SNPA is six
+// octets.
 type SNPA [6]byte
 
 // String returns the SNPA as colon separated hexadecimal octets, as in

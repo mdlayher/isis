@@ -2,6 +2,7 @@ package isis
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"iter"
 	"net/netip"
@@ -124,7 +125,7 @@ func TLVs(b []byte) iter.Seq2[TLV, error] {
 	return func(yield func(TLV, error) bool) {
 		for len(b) > 0 {
 			if len(b) < 2 {
-				yield(TLV{}, fmt.Errorf("isis: %d octets remain, too few for a TLV header", len(b)))
+				yield(TLV{}, errors.New("isis: one octet remains, too few for a TLV header"))
 				return
 			}
 

@@ -5,3 +5,10 @@ Package `isis` implements the Intermediate System to Intermediate System
 [RFC 1195](https://www.rfc-editor.org/rfc/rfc1195), and related RFCs: a
 link-state interior gateway protocol running directly over the data link,
 independent of IP. MIT Licensed.
+
+The package is built in layers. Each layer is usable without the ones above
+it:
+
+- The codec: the common `Header`, the `PointToPointHello`, the `TLVs` walk,
+  and the typed TLV constructors and parsers, such as `AreaAddressesTLV` and
+  `TLV.AreaAddresses`, with their binary encoding.

@@ -2,7 +2,6 @@ package isis_test
 
 import (
 	"bytes"
-	"fmt"
 	"net/netip"
 	"slices"
 	"testing"
@@ -940,16 +939,6 @@ func mustAreaAddress(t *testing.T, b []byte) isis.AreaAddress {
 	}
 
 	return a
-}
-
-// stringsOf renders each of vs with String, for comparison.
-func stringsOf[T fmt.Stringer](vs []T) []string {
-	out := make([]string, 0, len(vs))
-	for _, v := range vs {
-		out = append(out, v.String())
-	}
-
-	return out
 }
 
 // A typedTLV is one typed accessor and its constructor, for
