@@ -40,7 +40,7 @@ func (l LSPID) String() string {
 	return fmt.Sprintf("%s.%02x-%02x", l.SystemID, l.Pseudonode, l.Fragment)
 }
 
-// An SNPA, a subnetwork point of attachment, is a Neighbor's link layer
+// An SNPA, a subnetwork point of attachment, is a neighbor's link layer
 // address on a Circuit: the destination an Instance puts on a frame.
 // IS-IS over Ethernet, including the RFC 5309 point to point form,
 // addresses frames by six octet link layer address, so an SNPA is six
@@ -128,7 +128,7 @@ type Topology uint16
 
 // The reserved topology identifiers this package names, from RFC 5120
 // section 7.5. TopologyStandard carries IPv4 unicast and is the topology
-// a Neighbor which sends no multi-topology TLV participates in.
+// a neighbor which sends no multi-topology TLV participates in.
 const (
 	TopologyStandard    Topology = 0
 	TopologyIPv6Unicast Topology = 2
@@ -157,8 +157,8 @@ const (
 )
 
 // An AreaAddress is the variable length prefix of an Instance's NSAP
-// which names its area. A Level 1 Adjacency requires one in common and a
-// Level 2 Adjacency does not. It is comparable by value, so it serves as
+// which names its area. A Level 1 adjacency requires one in common and a
+// Level 2 adjacency does not. It is comparable by value, so it serves as
 // a map key.
 type AreaAddress struct {
 	n      uint8
@@ -238,7 +238,7 @@ const (
 	// hellos, a DIS, and a Pseudonode.
 	CircuitBroadcast
 
-	// CircuitPointToPoint is a link with exactly one Neighbor: point to
+	// CircuitPointToPoint is a link with exactly one neighbor: point to
 	// point hellos and the RFC 5303 three way handshake, no DIS and no
 	// Pseudonode. RFC 5309 allows an Ethernet link to be one.
 	CircuitPointToPoint

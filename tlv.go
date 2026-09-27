@@ -266,7 +266,7 @@ func (t TLV) ProtocolsSupported() ([]NLPID, error) {
 // 132, described in RFC 1195 section 4.2, which carries only IPv4
 // addresses. RFC 3787 section 10 requires it in every hello so an
 // implementation which checks the neighbor's addressing still forms the
-// Adjacency.
+// adjacency.
 func IPv4InterfaceAddressesTLV(addrs []netip.Addr) (TLV, error) {
 	v := make([]byte, 0, 4*len(addrs))
 	for _, a := range addrs {
@@ -362,9 +362,9 @@ func (t TLV) IPv6InterfaceAddresses() ([]netip.Addr, error) {
 	return addrs, nil
 }
 
-// A ThreeWayState is one system's view of a point to point Adjacency, as
+// A ThreeWayState is one system's view of a point to point adjacency, as
 // carried in the three way adjacency TLV of RFC 5303 section 3.1. It is
-// the sender's claim about the Adjacency, not the receiver's state. Its
+// the sender's claim about the adjacency, not the receiver's state. Its
 // values are the wire encoding, so the zero ThreeWayState is ThreeWayUp.
 type ThreeWayState uint8
 
@@ -398,7 +398,7 @@ func (s ThreeWayState) String() string {
 // zero NeighborSystemID is unambiguous: it means the neighbor fields are
 // absent, never that they name a system.
 type ThreeWayAdjacency struct {
-	// State is the sender's view of the Adjacency. The zero State is
+	// State is the sender's view of the adjacency. The zero State is
 	// ThreeWayUp.
 	State ThreeWayState
 
@@ -409,7 +409,7 @@ type ThreeWayAdjacency struct {
 
 	// NeighborSystemID is the system the sender last heard on this
 	// Circuit, or zero if it has heard none. The receiver treats a hello
-	// which names some other system as evidence the Adjacency is not yet
+	// which names some other system as evidence the adjacency is not yet
 	// two way.
 	NeighborSystemID SystemID
 
@@ -488,7 +488,7 @@ func (t TLV) ThreeWayAdjacency() (ThreeWayAdjacency, error) {
 }
 
 // appendPadding appends padding TLVs, code 8, to b until it is n octets
-// long. ISO 10589 clause 8.2.3 pads a hello so an Adjacency forms only
+// long. ISO 10589 clause 8.2.3 pads a hello so an adjacency forms only
 // between systems able to exchange PDUs of the link's full size, and RFC
 // 3719 section 6 makes the padding unobservable to the receiver: "The
 // presence or absence of padding TLVs MUST NOT be one of the acceptance

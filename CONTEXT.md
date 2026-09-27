@@ -33,6 +33,12 @@ One Instance's attachment to a single link, owning that link's hellos,
 its adjacencies, and its flooding flags. Broadcast or point to point.
 _Avoid_: interface, link, port
 
+**Link**:
+The medium one or more Circuits attach to, point to point or broadcast:
+ISO 10589's subnetwork. Each Instance on a Link attaches through a
+Circuit of its own.
+_Avoid_: subnetwork, segment, wire
+
 **Adjacency**:
 The relationship one Circuit holds with one Neighbor, from Initializing
 through Up, with a level and a topology set of its own.

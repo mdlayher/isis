@@ -9,7 +9,7 @@ import (
 
 // A PointToPointHello is the point to point hello PDU, type 17, described
 // in ISO 10589 clause 9.7. A point to point Circuit sends one every hello
-// interval and every Adjacency on it lives or dies by their arrival. RFC
+// interval and every adjacency on it lives or dies by their arrival. RFC
 // 5309 allows an Ethernet link to carry them.
 type PointToPointHello struct {
 	// Levels is the set of levels the sending Circuit runs: the wire's
@@ -19,7 +19,7 @@ type PointToPointHello struct {
 	// SourceID is the sending Instance's system identifier.
 	SourceID SystemID
 
-	// HoldingTime is how long a receiver keeps the Adjacency alive
+	// HoldingTime is how long a receiver keeps the adjacency alive
 	// without a further hello. The wire carries whole seconds in 16 bits,
 	// so it must be a whole number of seconds from 1 to 65535.
 	HoldingTime time.Duration
@@ -35,7 +35,7 @@ type PointToPointHello struct {
 	TLVs []TLV
 
 	// PadTo, when nonzero, pads the encoded hello to that many octets
-	// with padding TLVs. ISO 10589 clause 8.2.3 pads so an Adjacency
+	// with padding TLVs. ISO 10589 clause 8.2.3 pads so an adjacency
 	// forms only between systems able to exchange PDUs of the link's full
 	// size. A PadTo the two octet TLV header cannot reach exactly leaves
 	// the hello one octet short of it.

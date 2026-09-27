@@ -12,3 +12,5 @@ it:
 - The codec: the common `Header`, the `PointToPointHello`, the `TLVs` walk,
   and the typed TLV constructors and parsers, such as `AreaAddressesTLV` and
   `TLV.AreaAddresses`, with their binary encoding.
+- `Transport` carries PDUs between one Circuit and the link it attaches to,
+  with `ErrDropped` for a frame an implementation discards.
