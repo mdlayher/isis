@@ -199,27 +199,27 @@ func TestParsePointToPointHelloMalformed(t *testing.T) {
 	tests := []struct {
 		name string
 		mut  func(b []byte)
-		want string
+		err  string
 	}{
 		{
 			name: "wrong discriminator",
 			mut:  func(b []byte) { b[0] = 0x82 },
-			want: "isis: PDU discriminator is 0x82, not 0x83",
+			err:  "isis: PDU discriminator is 0x82, not 0x83",
 		},
 		{
 			name: "wrong length indicator",
 			mut:  func(b []byte) { b[1] = 27 },
-			want: "isis: a point to point hello header is 20 octets, not the 27 the length indicator claims",
+			err:  "isis: a point to point hello header is 20 octets, not the 27 the length indicator claims",
 		},
 		{
 			name: "wrong protocol ID extension",
 			mut:  func(b []byte) { b[2] = 2 },
-			want: "isis: unsupported version/protocol ID extension 2",
+			err:  "isis: unsupported version/protocol ID extension 2",
 		},
 		{
 			name: "unsupported ID length",
 			mut:  func(b []byte) { b[3] = 8 },
-			want: "isis: unsupported ID length 8",
+			err:  "isis: unsupported ID length 8",
 		},
 		{
 			// A LAN hello header is longer, so the length indicator must
@@ -229,64 +229,64 @@ func TestParsePointToPointHelloMalformed(t *testing.T) {
 				b[1] = 27
 				b[4] = uint8(isis.PDUL2LANHello)
 			},
-			want: "isis: PDU is a Level 2 LAN hello, not a point to point hello",
+			err: "isis: PDU is a Level 2 LAN hello, not a point to point hello",
 		},
 		{
 			name: "unassigned type",
 			mut:  func(b []byte) { b[4] = 19 },
-			want: "isis: PDU type 19 does not exist",
+			err:  "isis: PDU type 19 does not exist",
 		},
 		{
 			name: "wrong version",
 			mut:  func(b []byte) { b[5] = 2 },
-			want: "isis: unsupported version 2",
+			err:  "isis: unsupported version 2",
 		},
 		{
 			name: "unsupported maximum area addresses",
 			mut:  func(b []byte) { b[7] = 5 },
-			want: "isis: maximum area addresses 5 does not match the 3 this package permits",
+			err:  "isis: maximum area addresses 5 does not match the 3 this package permits",
 		},
 		{
 			name: "no levels",
 			mut:  func(b []byte) { b[8] = 0 },
-			want: "isis: hello circuit type 0 names no level",
+			err:  "isis: hello circuit type 0 names no level",
 		},
 		{
 			name: "zero source ID",
 			mut:  func(b []byte) { clear(b[9:15]) },
-			want: "isis: hello source system ID must be nonzero",
+			err:  "isis: hello source system ID must be nonzero",
 		},
 		{
 			name: "zero holding time",
 			mut:  func(b []byte) { clear(b[15:17]) },
-			want: "isis: hello holding time must be nonzero",
+			err:  "isis: hello holding time must be nonzero",
 		},
 		{
 			name: "PDU length past the octets received",
 			mut:  func(b []byte) { binary.BigEndian.PutUint16(b[17:19], uint16(len(b)+1)) },
-			want: "isis: point to point hello PDU length 72 is outside its 20 octet header and the 71 octets received",
+			err:  "isis: point to point hello PDU length 72 is outside its 20 octet header and the 71 octets received",
 		},
 		{
 			name: "PDU length inside the header",
 			mut:  func(b []byte) { binary.BigEndian.PutUint16(b[17:19], 19) },
-			want: "isis: point to point hello PDU length 19 is outside its 20 octet header and the 71 octets received",
+			err:  "isis: point to point hello PDU length 19 is outside its 20 octet header and the 71 octets received",
 		},
 		{
 			name: "TLV overruns the PDU",
 			mut:  func(b []byte) { b[21] = 0xff },
-			want: "isis: Area Addresses declares 255 octets but 49 remain",
+			err:  "isis: Area Addresses declares 255 octets but 49 remain",
 		},
 		{
 			name: "TLV value cut short by the PDU end",
 			mut:  func(b []byte) { binary.BigEndian.PutUint16(b[17:19], uint16(len(helloWire)-1)) },
-			want: "isis: Point-to-Point Three-Way Adjacency declares 15 octets but 14 remain",
+			err:  "isis: Point-to-Point Three-Way Adjacency declares 15 octets but 14 remain",
 		},
 		{
 			// The PDU ends one octet into the three way adjacency TLV's
 			// header, after the 34 octets of the four TLVs before it.
 			name: "TLV header straddles the PDU end",
 			mut:  func(b []byte) { binary.BigEndian.PutUint16(b[17:19], 20+34+1) },
-			want: "isis: one octet remains, too few for a TLV header",
+			err:  "isis: one octet remains, too few for a TLV header",
 		},
 	}
 
@@ -302,8 +302,8 @@ func TestParsePointToPointHelloMalformed(t *testing.T) {
 				t.Fatalf("expected an error, but parsed: %+v", h)
 			}
 
-			if got := err.Error(); got != tt.want {
-				t.Fatalf("unexpected error: want %q, got %q", tt.want, got)
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
 			}
 		})
 	}
@@ -315,7 +315,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 	tests := []struct {
 		name string
 		h    isis.PointToPointHello
-		want string
+		err  string
 	}{
 		{
 			name: "no levels",
@@ -323,7 +323,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				SourceID:    isis.SystemID{1},
 				HoldingTime: time.Second,
 			},
-			want: "isis: hello circuit type 0 names no level",
+			err: "isis: hello circuit type 0 names no level",
 		},
 		{
 			name: "zero source ID",
@@ -331,7 +331,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				Levels:      isis.Level2Only,
 				HoldingTime: time.Second,
 			},
-			want: "isis: hello source system ID must be nonzero",
+			err: "isis: hello source system ID must be nonzero",
 		},
 		{
 			name: "zero holding time",
@@ -339,7 +339,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				Levels:   isis.Level2Only,
 				SourceID: isis.SystemID{1},
 			},
-			want: "isis: holding time must be 1 to 65535 whole seconds: 0s",
+			err: "isis: holding time must be 1 to 65535 whole seconds: 0s",
 		},
 		{
 			name: "fractional holding time",
@@ -348,7 +348,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				SourceID:    isis.SystemID{1},
 				HoldingTime: 1500 * time.Millisecond,
 			},
-			want: "isis: holding time must be 1 to 65535 whole seconds: 1.5s",
+			err: "isis: holding time must be 1 to 65535 whole seconds: 1.5s",
 		},
 		{
 			name: "holding time over the wire's 16 bits",
@@ -357,7 +357,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				SourceID:    isis.SystemID{1},
 				HoldingTime: 65536 * time.Second,
 			},
-			want: "isis: holding time must be 1 to 65535 whole seconds: 18h12m16s",
+			err: "isis: holding time must be 1 to 65535 whole seconds: 18h12m16s",
 		},
 		{
 			name: "oversized TLV",
@@ -370,7 +370,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 					Value: make([]byte, 256),
 				}},
 			},
-			want: "isis: Padding value is 256 octets, over the wire's 255",
+			err: "isis: Padding value is 256 octets, over the wire's 255",
 		},
 	}
 
@@ -383,8 +383,8 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 				t.Fatalf("expected an error, but appended: %x", b)
 			}
 
-			if got := err.Error(); got != tt.want {
-				t.Fatalf("unexpected error: want %q, got %q", tt.want, got)
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
 			}
 		})
 	}

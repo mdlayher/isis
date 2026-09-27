@@ -103,42 +103,52 @@ func TestParseHeaderRejects(t *testing.T) {
 	tests := []struct {
 		name string
 		b    []byte
+		err  string
 	}{
 		{
 			name: "shorter than the common header",
 			b:    []byte{0x83, 20, 1, 0, 17, 1, 0},
+			err:  "isis: PDU is 7 octets, too short for its 8 octet common header",
 		},
 		{
 			name: "discriminator",
 			b:    pad([]byte{0x82, 20, 1, 0, 17, 1, 0, 0}, 20),
+			err:  "isis: PDU discriminator is 0x82, not 0x83",
 		},
 		{
 			name: "protocol ID extension",
 			b:    pad([]byte{0x83, 20, 2, 0, 17, 1, 0, 0}, 20),
+			err:  "isis: unsupported version/protocol ID extension 2",
 		},
 		{
 			name: "ID length",
 			b:    pad([]byte{0x83, 20, 1, 4, 17, 1, 0, 0}, 20),
+			err:  "isis: unsupported ID length 4",
 		},
 		{
 			name: "version",
 			b:    pad([]byte{0x83, 20, 1, 0, 17, 2, 0, 0}, 20),
+			err:  "isis: unsupported version 2",
 		},
 		{
 			name: "a type which does not exist",
 			b:    pad([]byte{0x83, 20, 1, 0, 19, 1, 0, 0}, 20),
+			err:  "isis: PDU type 19 does not exist",
 		},
 		{
 			name: "a length indicator which does not match the type",
 			b:    pad([]byte{0x83, 27, 1, 0, 17, 1, 0, 0}, 27),
+			err:  "isis: a point to point hello header is 20 octets, not the 27 the length indicator claims",
 		},
 		{
 			name: "shorter than the type's fixed header",
 			b:    pad([]byte{0x83, 20, 1, 0, 17, 1, 0, 0}, 19),
+			err:  "isis: point to point hello PDU is 19 octets, too short for its 20 octet header",
 		},
 		{
 			name: "maximum area addresses",
 			b:    pad([]byte{0x83, 20, 1, 0, 17, 1, 0, 2}, 20),
+			err:  "isis: maximum area addresses 2 does not match the 3 this package permits",
 		},
 	}
 
@@ -151,7 +161,9 @@ func TestParseHeaderRejects(t *testing.T) {
 				t.Fatalf("expected an error, but parsed %+v", h)
 			}
 
-			t.Logf("err: %v", err)
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
+			}
 		})
 	}
 }
@@ -206,10 +218,12 @@ func TestHeaderAppendBinaryRejects(t *testing.T) {
 	tests := []struct {
 		name string
 		h    isis.Header
+		err  string
 	}{
 		{
 			name: "a type which does not exist",
 			h:    isis.Header{Type: 19},
+			err:  "isis: PDU type 19 does not exist",
 		},
 		{
 			name: "a length indicator which does not match the type",
@@ -217,6 +231,7 @@ func TestHeaderAppendBinaryRejects(t *testing.T) {
 				Type:            isis.PDUPointToPointHello,
 				LengthIndicator: 27,
 			},
+			err: "isis: a point to point hello header is 20 octets, not the 27 given",
 		},
 	}
 
@@ -229,7 +244,9 @@ func TestHeaderAppendBinaryRejects(t *testing.T) {
 				t.Fatalf("expected an error, but appended %x", b)
 			}
 
-			t.Logf("err: %v", err)
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
+			}
 		})
 	}
 }

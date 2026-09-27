@@ -19,7 +19,7 @@ func Test_pduLength(t *testing.T) {
 		size   int
 		off    int
 		length uint16
-		ok     bool
+		err    string
 	}{
 		{
 			name:   "a hello, after the source ID",
@@ -27,7 +27,6 @@ func Test_pduLength(t *testing.T) {
 			size:   32,
 			off:    17,
 			length: 30,
-			ok:     true,
 		},
 		{
 			name:   "a sequence numbers PDU, after the common header",
@@ -35,7 +34,6 @@ func Test_pduLength(t *testing.T) {
 			size:   40,
 			off:    8,
 			length: 40,
-			ok:     true,
 		},
 		{
 			name:   "below the fixed header",
@@ -43,6 +41,7 @@ func Test_pduLength(t *testing.T) {
 			size:   32,
 			off:    17,
 			length: 19,
+			err:    "isis: point to point hello PDU length 19 is outside its 20 octet header and the 32 octets received",
 		},
 		{
 			name:   "beyond the octets received",
@@ -50,6 +49,7 @@ func Test_pduLength(t *testing.T) {
 			size:   40,
 			off:    8,
 			length: 41,
+			err:    "isis: Level 2 complete sequence numbers PDU length 41 is outside its 33 octet header and the 40 octets received",
 		},
 	}
 
@@ -66,12 +66,15 @@ func Test_pduLength(t *testing.T) {
 			binary.BigEndian.PutUint16(b[tt.off:], tt.length)
 
 			n, err := pduLength(tt.typ, b)
-			if !tt.ok {
+			if tt.err != "" {
 				if err == nil {
 					t.Fatalf("expected an error, but got length %d", n)
 				}
 
-				t.Logf("err: %v", err)
+				if got := err.Error(); got != tt.err {
+					t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
+				}
+
 				return
 			}
 

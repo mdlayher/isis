@@ -65,27 +65,32 @@ func TestParseNETRejects(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name, s string
+		name, s, err string
 	}{
 		{
 			name: "not hexadecimal",
 			s:    "49.0001.0000.0000.000z.00",
+			err:  `isis: network entity title "49.0001.0000.0000.000z.00" is not hexadecimal`,
 		},
 		{
 			name: "an odd number of digits",
 			s:    "49.0001.0000.0000.0001.0",
+			err:  `isis: network entity title "49.0001.0000.0000.0001.0" has an odd number of hexadecimal digits`,
 		},
 		{
 			name: "no area address",
 			s:    "0000.0000.0001.00",
+			err:  `isis: network entity title "0000.0000.0001.00" is 7 octets, outside 8 to 20`,
 		},
 		{
 			name: "a nonzero NSEL",
 			s:    "49.0001.0000.0000.0001.01",
+			err:  `isis: network entity title "49.0001.0000.0000.0001.01" must end in a zero NSEL octet: 0x01`,
 		},
 		{
 			name: "past a twenty octet NSAP",
 			s:    "49.0001.0203.0405.0607.0809.0a0b.0c.0000.0000.0003.00",
+			err:  `isis: network entity title "49.0001.0203.0405.0607.0809.0a0b.0c.0000.0000.0003.00" is 21 octets, outside 8 to 20`,
 		},
 	}
 
@@ -98,7 +103,9 @@ func TestParseNETRejects(t *testing.T) {
 				t.Fatalf("expected an error, but parsed %s and %s", area, id)
 			}
 
-			t.Logf("err: %v", err)
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
+			}
 		})
 	}
 }
@@ -226,12 +233,35 @@ func TestLevelSetHas(t *testing.T) {
 func TestNewAreaAddressRejects(t *testing.T) {
 	t.Parallel()
 
-	for _, n := range []int{0, 21} {
-		a, err := isis.NewAreaAddress(make([]byte, n))
-		if err == nil {
-			t.Fatalf("expected an error for %d octets, but built %s", n, a)
-		}
+	tests := []struct {
+		name string
+		n    int
+		err  string
+	}{
+		{
+			name: "empty",
+			n:    0,
+			err:  "isis: area address must be 1 to 20 octets: 0 octets",
+		},
+		{
+			name: "past a twenty octet NSAP",
+			n:    21,
+			err:  "isis: area address must be 1 to 20 octets: 21 octets",
+		},
+	}
 
-		t.Logf("err: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := isis.NewAreaAddress(make([]byte, tt.n))
+			if err == nil {
+				t.Fatalf("expected an error, but built %s", a)
+			}
+
+			if got := err.Error(); got != tt.err {
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, got)
+			}
+		})
 	}
 }

@@ -119,6 +119,16 @@ Locks:
   exception is work the lock exists to serialize, which says as much where
   it happens.
 
+Errors:
+
+- A parse or validation error is written entirely in this package's
+  words, prefixed `isis: ` and quoting the input where it helps, and
+  never embeds another package's error text: a reader is an operator,
+  and stdlib wording is an implementation detail which also pins tests
+  to a Go release. A failure from the operating system, such as a socket
+  refusing to open, wraps its cause with `%w`, because there the cause
+  is the information.
+
 Logging:
 
 - A log call on a per-message path is guarded by
@@ -181,6 +191,13 @@ Markdown documents:
   `appendPadding`, so the name marks it as reaching past the exported API.
 - Test scenarios, not coverage. Cover paths a plausible real-world scenario
   hits, framed on behavior; 100% coverage is not a goal.
+- A test which expects an error pins its exact text: the table carries an
+  `err string` beside the input, and the test compares `err.Error()` to
+  it with `!=`. A table which matches an error value with `errors.Is`
+  carries an `err error` instead. Logging the error proves only that one
+  came back. Pinning it proves the input reached the check the case is
+  named for, which is how two hello cases were found failing on an
+  earlier check instead.
 - Compare a complex type with `cmp.Diff`, never field by field or with
   `slices.Equal`: slices, maps, and structs all go through it, and the
   failure prints the difference rather than the two whole values for a

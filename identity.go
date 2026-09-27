@@ -2,6 +2,7 @@ package isis
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -197,8 +198,12 @@ func (a AreaAddress) String() string {
 // SystemID, and everything before those is the AreaAddress.
 func ParseNET(s string) (AreaAddress, SystemID, error) {
 	b, err := hex.DecodeString(strings.ReplaceAll(s, ".", ""))
+	if errors.Is(err, hex.ErrLength) {
+		return AreaAddress{}, SystemID{}, fmt.Errorf("isis: network entity title %q has an odd number of hexadecimal digits", s)
+	}
+
 	if err != nil {
-		return AreaAddress{}, SystemID{}, fmt.Errorf("isis: network entity title %q is not hexadecimal: %v", s, err)
+		return AreaAddress{}, SystemID{}, fmt.Errorf("isis: network entity title %q is not hexadecimal", s)
 	}
 
 	// A whole NSAP is 20 octets, and the shortest useful one is a single
