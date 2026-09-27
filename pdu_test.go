@@ -1,51 +1,52 @@
-package isis
+package isis_test
 
 import (
-	"encoding/binary"
 	"testing"
+
+	"github.com/mdlayher/isis"
 )
 
 func TestHeaderRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		typ PDUType
+		typ isis.PDUType
 		li  uint8
 	}{
 		{
-			typ: PDUL1LANHello,
+			typ: isis.PDUL1LANHello,
 			li:  27,
 		},
 		{
-			typ: PDUL2LANHello,
+			typ: isis.PDUL2LANHello,
 			li:  27,
 		},
 		{
-			typ: PDUPointToPointHello,
+			typ: isis.PDUPointToPointHello,
 			li:  20,
 		},
 		{
-			typ: PDUL1LinkState,
+			typ: isis.PDUL1LinkState,
 			li:  27,
 		},
 		{
-			typ: PDUL2LinkState,
+			typ: isis.PDUL2LinkState,
 			li:  27,
 		},
 		{
-			typ: PDUL1CompleteSequence,
+			typ: isis.PDUL1CompleteSequence,
 			li:  33,
 		},
 		{
-			typ: PDUL2CompleteSequence,
+			typ: isis.PDUL2CompleteSequence,
 			li:  33,
 		},
 		{
-			typ: PDUL1PartialSequence,
+			typ: isis.PDUL1PartialSequence,
 			li:  17,
 		},
 		{
-			typ: PDUL2PartialSequence,
+			typ: isis.PDUL2PartialSequence,
 			li:  17,
 		},
 	}
@@ -56,7 +57,7 @@ func TestHeaderRoundTrip(t *testing.T) {
 
 			// LengthIndicator is left zero for AppendBinary to fill in
 			// from Type.
-			b, err := Header{Type: tt.typ}.AppendBinary(nil)
+			b, err := isis.Header{Type: tt.typ}.AppendBinary(nil)
 			if err != nil {
 				t.Fatalf("failed to append header: %v", err)
 			}
@@ -66,12 +67,12 @@ func TestHeaderRoundTrip(t *testing.T) {
 				t.Fatalf("unexpected header octets (-want +got):\n%s", d)
 			}
 
-			h, err := ParseHeader(pad(b, int(tt.li)))
+			h, err := isis.ParseHeader(pad(b, int(tt.li)))
 			if err != nil {
 				t.Fatalf("failed to parse header: %v", err)
 			}
 
-			want := Header{
+			want := isis.Header{
 				Type:            tt.typ,
 				LengthIndicator: tt.li,
 			}
@@ -145,7 +146,7 @@ func TestParseHeaderRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, err := ParseHeader(tt.b)
+			h, err := isis.ParseHeader(tt.b)
 			if err == nil {
 				t.Fatalf("expected an error, but parsed %+v", h)
 			}
@@ -182,13 +183,13 @@ func TestParseHeaderAccepts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, err := ParseHeader(tt.b)
+			h, err := isis.ParseHeader(tt.b)
 			if err != nil {
 				t.Fatalf("failed to parse header: %v", err)
 			}
 
-			want := Header{
-				Type:            PDUPointToPointHello,
+			want := isis.Header{
+				Type:            isis.PDUPointToPointHello,
 				LengthIndicator: 20,
 			}
 
@@ -204,16 +205,16 @@ func TestHeaderAppendBinaryRejects(t *testing.T) {
 
 	tests := []struct {
 		name string
-		h    Header
+		h    isis.Header
 	}{
 		{
 			name: "a type which does not exist",
-			h:    Header{Type: 19},
+			h:    isis.Header{Type: 19},
 		},
 		{
 			name: "a length indicator which does not match the type",
-			h: Header{
-				Type:            PDUPointToPointHello,
+			h: isis.Header{
+				Type:            isis.PDUPointToPointHello,
 				LengthIndicator: 27,
 			},
 		},
@@ -233,125 +234,47 @@ func TestHeaderAppendBinaryRejects(t *testing.T) {
 	}
 }
 
-func TestPDULength(t *testing.T) {
-	t.Parallel()
-
-	// Each case builds a header of typ padded to size octets and writes
-	// length at off, where the PDU length field sits for that type.
-	tests := []struct {
-		name   string
-		typ    PDUType
-		size   int
-		off    int
-		length uint16
-		ok     bool
-	}{
-		{
-			name:   "a hello, after the source ID",
-			typ:    PDUPointToPointHello,
-			size:   32,
-			off:    17,
-			length: 30,
-			ok:     true,
-		},
-		{
-			name:   "a sequence numbers PDU, after the common header",
-			typ:    PDUL2CompleteSequence,
-			size:   40,
-			off:    8,
-			length: 40,
-			ok:     true,
-		},
-		{
-			name:   "below the fixed header",
-			typ:    PDUPointToPointHello,
-			size:   32,
-			off:    17,
-			length: 19,
-		},
-		{
-			name:   "beyond the octets received",
-			typ:    PDUL2CompleteSequence,
-			size:   40,
-			off:    8,
-			length: 41,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b, err := Header{Type: tt.typ}.AppendBinary(nil)
-			if err != nil {
-				t.Fatalf("failed to append header: %v", err)
-			}
-
-			b = pad(b, tt.size)
-			binary.BigEndian.PutUint16(b[tt.off:], tt.length)
-
-			n, err := pduLength(tt.typ, b)
-			if !tt.ok {
-				if err == nil {
-					t.Fatalf("expected an error, but got length %d", n)
-				}
-
-				t.Logf("err: %v", err)
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("failed to read PDU length: %v", err)
-			}
-
-			if n != int(tt.length) {
-				t.Fatalf("unexpected PDU length: want %d, got %d", tt.length, n)
-			}
-		})
-	}
-}
-
 func TestPDUTypeString(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		typ  PDUType
+		typ  isis.PDUType
 		want string
 	}{
 		{
-			typ:  PDUL1LANHello,
+			typ:  isis.PDUL1LANHello,
 			want: "Level 1 LAN hello",
 		},
 		{
-			typ:  PDUL2LANHello,
+			typ:  isis.PDUL2LANHello,
 			want: "Level 2 LAN hello",
 		},
 		{
-			typ:  PDUPointToPointHello,
+			typ:  isis.PDUPointToPointHello,
 			want: "point to point hello",
 		},
 		{
-			typ:  PDUL1LinkState,
+			typ:  isis.PDUL1LinkState,
 			want: "Level 1 link state",
 		},
 		{
-			typ:  PDUL2LinkState,
+			typ:  isis.PDUL2LinkState,
 			want: "Level 2 link state",
 		},
 		{
-			typ:  PDUL1CompleteSequence,
+			typ:  isis.PDUL1CompleteSequence,
 			want: "Level 1 complete sequence numbers",
 		},
 		{
-			typ:  PDUL2CompleteSequence,
+			typ:  isis.PDUL2CompleteSequence,
 			want: "Level 2 complete sequence numbers",
 		},
 		{
-			typ:  PDUL1PartialSequence,
+			typ:  isis.PDUL1PartialSequence,
 			want: "Level 1 partial sequence numbers",
 		},
 		{
-			typ:  PDUL2PartialSequence,
+			typ:  isis.PDUL2PartialSequence,
 			want: "Level 2 partial sequence numbers",
 		},
 		{

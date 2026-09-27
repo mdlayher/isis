@@ -1,4 +1,4 @@
-package isis
+package isis_test
 
 import (
 	"bytes"
@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"slices"
 	"testing"
+
+	"github.com/mdlayher/isis"
 )
 
 func TestTLVsAccountForEveryOctet(t *testing.T) {
@@ -14,11 +16,11 @@ func TestTLVsAccountForEveryOctet(t *testing.T) {
 	// The walk consumes every octet of the variable length part with no
 	// remainder and no overrun.
 	var (
-		types []TLVType
+		types []isis.TLVType
 		n     int
 	)
 
-	for tlv, err := range TLVs(tlvRegion) {
+	for tlv, err := range isis.TLVs(tlvRegion) {
 		if err != nil {
 			t.Fatalf("failed to walk TLVs: %v", err)
 		}
@@ -31,12 +33,12 @@ func TestTLVsAccountForEveryOctet(t *testing.T) {
 		t.Fatalf("unexpected octets accounted for: want %d, got %d", len(tlvRegion), n)
 	}
 
-	want := []TLVType{
-		TLVAreaAddresses,
-		TLVProtocolsSupported,
-		TLVIPv4InterfaceAddresses,
-		TLVIPv6InterfaceAddresses,
-		TLVThreeWayAdjacency,
+	want := []isis.TLVType{
+		isis.TLVAreaAddresses,
+		isis.TLVProtocolsSupported,
+		isis.TLVIPv4InterfaceAddresses,
+		isis.TLVIPv6InterfaceAddresses,
+		isis.TLVThreeWayAdjacency,
 	}
 
 	if d := diff(t, want, types); d != "" {
@@ -66,11 +68,11 @@ func TestTLVsStopAtFirstError(t *testing.T) {
 			t.Parallel()
 
 			var (
-				got  []TLVType
+				got  []isis.TLVType
 				gerr error
 			)
 
-			for tlv, err := range TLVs(tt.b) {
+			for tlv, err := range isis.TLVs(tt.b) {
 				if err != nil {
 					gerr = err
 					continue
@@ -85,7 +87,7 @@ func TestTLVsStopAtFirstError(t *testing.T) {
 
 			// The well formed prefix is still yielded, and the walk stops
 			// at the malformed remainder rather than looping on it.
-			if d := diff(t, []TLVType{TLVAreaAddresses}, got); d != "" {
+			if d := diff(t, []isis.TLVType{isis.TLVAreaAddresses}, got); d != "" {
 				t.Fatalf("unexpected TLV types (-want +got):\n%s", d)
 			}
 
@@ -98,15 +100,15 @@ func TestTLVsBreakEarly(t *testing.T) {
 	t.Parallel()
 
 	// A caller which finds what it wants stops the walk.
-	var got []TLVType
-	for tlv := range TLVs(tlvRegion) {
+	var got []isis.TLVType
+	for tlv := range isis.TLVs(tlvRegion) {
 		got = append(got, tlv.Type)
-		if tlv.Type == TLVProtocolsSupported {
+		if tlv.Type == isis.TLVProtocolsSupported {
 			break
 		}
 	}
 
-	if d := diff(t, []TLVType{TLVAreaAddresses, TLVProtocolsSupported}, got); d != "" {
+	if d := diff(t, []isis.TLVType{isis.TLVAreaAddresses, isis.TLVProtocolsSupported}, got); d != "" {
 		t.Fatalf("unexpected TLV types (-want +got):\n%s", d)
 	}
 }
@@ -118,7 +120,7 @@ func TestTLVsValueAppendCopies(t *testing.T) {
 	// than overwrite the TLV which follows it.
 	b := bytes.Clone(tlvRegion)
 
-	for tlv, err := range TLVs(b) {
+	for tlv, err := range isis.TLVs(b) {
 		if err != nil {
 			t.Fatalf("failed to walk TLVs: %v", err)
 		}
@@ -137,9 +139,9 @@ func TestTLVAppendBinaryLongestValue(t *testing.T) {
 
 	// A value of 255 octets is the most the one octet length field can
 	// declare, and it survives a round trip through the walk.
-	want := TLV{
-		Type:  TLVPadding,
-		Value: make([]byte, maxTLVValueLen),
+	want := isis.TLV{
+		Type:  isis.TLVPadding,
+		Value: make([]byte, 255),
 	}
 
 	b, err := want.AppendBinary(nil)
@@ -147,12 +149,12 @@ func TestTLVAppendBinaryLongestValue(t *testing.T) {
 		t.Fatalf("failed to append TLV: %v", err)
 	}
 
-	if len(b) != 2+maxTLVValueLen {
-		t.Fatalf("unexpected encoded length: want %d, got %d", 2+maxTLVValueLen, len(b))
+	if len(b) != 2+255 {
+		t.Fatalf("unexpected encoded length: want %d, got %d", 2+255, len(b))
 	}
 
-	var got []TLV
-	for tlv, err := range TLVs(b) {
+	var got []isis.TLV
+	for tlv, err := range isis.TLVs(b) {
 		if err != nil {
 			t.Fatalf("failed to walk TLVs: %v", err)
 		}
@@ -160,7 +162,7 @@ func TestTLVAppendBinaryLongestValue(t *testing.T) {
 		got = append(got, tlv)
 	}
 
-	if d := diff(t, []TLV{want}, got); d != "" {
+	if d := diff(t, []isis.TLV{want}, got); d != "" {
 		t.Fatalf("unexpected TLVs (-want +got):\n%s", d)
 	}
 }
@@ -170,9 +172,9 @@ func TestTLVAppendBinaryRejectsLongValue(t *testing.T) {
 
 	// One octet more than the length field can declare is refused rather
 	// than truncated on the wire.
-	tlv := TLV{
-		Type:  TLVPadding,
-		Value: make([]byte, maxTLVValueLen+1),
+	tlv := isis.TLV{
+		Type:  isis.TLVPadding,
+		Value: make([]byte, 256),
 	}
 
 	b, err := tlv.AppendBinary(nil)
@@ -188,12 +190,12 @@ func TestTLVTypeString(t *testing.T) {
 
 	tests := []struct {
 		name string
-		typ  TLVType
+		typ  isis.TLVType
 		want string
 	}{
 		{
 			name: "named",
-			typ:  TLVThreeWayAdjacency,
+			typ:  isis.TLVThreeWayAdjacency,
 			want: "Point-to-Point Three-Way Adjacency",
 		},
 		{
@@ -214,76 +216,6 @@ func TestTLVTypeString(t *testing.T) {
 	}
 }
 
-func TestAppendPadding(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		have, n int
-		want    int
-	}{
-		{
-			name: "nothing to pad",
-			have: 20,
-			n:    20,
-			want: 20,
-		},
-		{
-			name: "one octet short of a TLV header",
-			have: 20,
-			n:    21,
-			want: 20,
-		},
-		{
-			name: "an empty padding TLV",
-			have: 20,
-			n:    22,
-			want: 22,
-		},
-		{
-			name: "one full TLV",
-			have: 20,
-			n:    277,
-			want: 277,
-		},
-		{
-			name: "the interface MTU",
-			have: 71,
-			n:    1497,
-			want: 1497,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := appendPadding(make([]byte, tt.have), tt.n)
-			if len(b) != tt.want {
-				t.Fatalf("unexpected length: want %d, got %d", tt.want, len(b))
-			}
-
-			// Whatever was appended must itself be a well formed TLV run.
-			var got int
-			for tlv, err := range TLVs(b[tt.have:]) {
-				if err != nil {
-					t.Fatalf("failed to walk padding: %v", err)
-				}
-
-				if tlv.Type != TLVPadding {
-					t.Fatalf("unexpected TLV in the padding: %s", tlv.Type)
-				}
-
-				got += 2 + len(tlv.Value)
-			}
-
-			if got != tt.want-tt.have {
-				t.Fatalf("unexpected padding octets: want %d, got %d", tt.want-tt.have, got)
-			}
-		})
-	}
-}
-
 func TestTLVRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -291,15 +223,15 @@ func TestTLVRoundTrip(t *testing.T) {
 	// wire octets, walks it back out, and parses the typed values again.
 	tests := []struct {
 		name  string
-		build func() (TLV, error)
+		build func() (isis.TLV, error)
 		wire  []byte
-		parse func(TLV) (any, error)
+		parse func(isis.TLV) (any, error)
 		want  any
 	}{
 		{
 			name: "area addresses",
-			build: func() (TLV, error) {
-				return AreaAddressesTLV([]AreaAddress{
+			build: func() (isis.TLV, error) {
+				return isis.AreaAddressesTLV([]isis.AreaAddress{
 					mustAreaAddress(t, []byte{0x49, 0x00, 0x01}),
 					mustAreaAddress(t, []byte{0x47, 0x00, 0x23, 0x00, 0x00}),
 				})
@@ -309,23 +241,25 @@ func TestTLVRoundTrip(t *testing.T) {
 				0x03, 0x49, 0x00, 0x01,
 				0x05, 0x47, 0x00, 0x23, 0x00, 0x00,
 			},
-			parse: func(tlv TLV) (any, error) { return tlv.AreaAddresses() },
-			want: []AreaAddress{
+			parse: func(tlv isis.TLV) (any, error) { return tlv.AreaAddresses() },
+			want: []isis.AreaAddress{
 				mustAreaAddress(t, []byte{0x49, 0x00, 0x01}),
 				mustAreaAddress(t, []byte{0x47, 0x00, 0x23, 0x00, 0x00}),
 			},
 		},
 		{
-			name:  "protocols supported",
-			build: func() (TLV, error) { return ProtocolsSupportedTLV([]NLPID{NLPIDIPv4, NLPIDIPv6}) },
+			name: "protocols supported",
+			build: func() (isis.TLV, error) {
+				return isis.ProtocolsSupportedTLV([]isis.NLPID{isis.NLPIDIPv4, isis.NLPIDIPv6})
+			},
 			wire:  []byte{0x81, 0x02, 0xcc, 0x8e},
-			parse: func(tlv TLV) (any, error) { return tlv.ProtocolsSupported() },
-			want:  []NLPID{NLPIDIPv4, NLPIDIPv6},
+			parse: func(tlv isis.TLV) (any, error) { return tlv.ProtocolsSupported() },
+			want:  []isis.NLPID{isis.NLPIDIPv4, isis.NLPIDIPv6},
 		},
 		{
 			name: "IPv4 interface addresses",
-			build: func() (TLV, error) {
-				return IPv4InterfaceAddressesTLV([]netip.Addr{
+			build: func() (isis.TLV, error) {
+				return isis.IPv4InterfaceAddressesTLV([]netip.Addr{
 					netip.MustParseAddr("192.0.2.1"),
 					netip.MustParseAddr("192.0.2.2"),
 				})
@@ -335,7 +269,7 @@ func TestTLVRoundTrip(t *testing.T) {
 				0xc0, 0x00, 0x02, 0x01,
 				0xc0, 0x00, 0x02, 0x02,
 			},
-			parse: func(tlv TLV) (any, error) { return tlv.IPv4InterfaceAddresses() },
+			parse: func(tlv isis.TLV) (any, error) { return tlv.IPv4InterfaceAddresses() },
 			want: []netip.Addr{
 				netip.MustParseAddr("192.0.2.1"),
 				netip.MustParseAddr("192.0.2.2"),
@@ -343,8 +277,8 @@ func TestTLVRoundTrip(t *testing.T) {
 		},
 		{
 			name: "IPv6 interface addresses",
-			build: func() (TLV, error) {
-				return IPv6InterfaceAddressesTLV([]netip.Addr{
+			build: func() (isis.TLV, error) {
+				return isis.IPv6InterfaceAddressesTLV([]netip.Addr{
 					netip.MustParseAddr("fe80::1"),
 					netip.MustParseAddr("fe80::2"),
 				})
@@ -356,7 +290,7 @@ func TestTLVRoundTrip(t *testing.T) {
 				0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 			},
-			parse: func(tlv TLV) (any, error) { return tlv.IPv6InterfaceAddresses() },
+			parse: func(tlv isis.TLV) (any, error) { return tlv.IPv6InterfaceAddresses() },
 			want: []netip.Addr{
 				netip.MustParseAddr("fe80::1"),
 				netip.MustParseAddr("fe80::2"),
@@ -364,11 +298,11 @@ func TestTLVRoundTrip(t *testing.T) {
 		},
 		{
 			name: "three way adjacency, neighbor heard",
-			build: func() (TLV, error) {
-				return ThreeWayAdjacencyTLV(ThreeWayAdjacency{
-					State:                          ThreeWayUp,
+			build: func() (isis.TLV, error) {
+				return isis.ThreeWayAdjacencyTLV(isis.ThreeWayAdjacency{
+					State:                          isis.ThreeWayUp,
 					ExtendedLocalCircuitID:         0x2a,
-					NeighborSystemID:               SystemID{0, 0, 0, 0, 0, 2},
+					NeighborSystemID:               isis.SystemID{0, 0, 0, 0, 0, 2},
 					NeighborExtendedLocalCircuitID: 0x0b,
 				})
 			},
@@ -379,11 +313,11 @@ func TestTLVRoundTrip(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 				0x00, 0x00, 0x00, 0x0b,
 			},
-			parse: func(tlv TLV) (any, error) { return tlv.ThreeWayAdjacency() },
-			want: ThreeWayAdjacency{
-				State:                          ThreeWayUp,
+			parse: func(tlv isis.TLV) (any, error) { return tlv.ThreeWayAdjacency() },
+			want: isis.ThreeWayAdjacency{
+				State:                          isis.ThreeWayUp,
 				ExtendedLocalCircuitID:         0x2a,
-				NeighborSystemID:               SystemID{0, 0, 0, 0, 0, 2},
+				NeighborSystemID:               isis.SystemID{0, 0, 0, 0, 0, 2},
 				NeighborExtendedLocalCircuitID: 0x0b,
 			},
 		},
@@ -391,16 +325,16 @@ func TestTLVRoundTrip(t *testing.T) {
 			// A SystemID is never zero, so the zero NeighborSystemID is
 			// what selects the five octet form.
 			name: "three way adjacency, neighbor not heard",
-			build: func() (TLV, error) {
-				return ThreeWayAdjacencyTLV(ThreeWayAdjacency{
-					State:                  ThreeWayDown,
+			build: func() (isis.TLV, error) {
+				return isis.ThreeWayAdjacencyTLV(isis.ThreeWayAdjacency{
+					State:                  isis.ThreeWayDown,
 					ExtendedLocalCircuitID: 0x2a,
 				})
 			},
 			wire:  []byte{0xf0, 0x05, 0x02, 0x00, 0x00, 0x00, 0x2a},
-			parse: func(tlv TLV) (any, error) { return tlv.ThreeWayAdjacency() },
-			want: ThreeWayAdjacency{
-				State:                  ThreeWayDown,
+			parse: func(tlv isis.TLV) (any, error) { return tlv.ThreeWayAdjacency() },
+			want: isis.ThreeWayAdjacency{
+				State:                  isis.ThreeWayDown,
 				ExtendedLocalCircuitID: 0x2a,
 			},
 		},
@@ -408,10 +342,10 @@ func TestTLVRoundTrip(t *testing.T) {
 			// The states are the wire encoding, where Up is 0, so a zero
 			// ThreeWayAdjacency claims Up rather than Down.
 			name:  "three way adjacency, zero value",
-			build: func() (TLV, error) { return ThreeWayAdjacencyTLV(ThreeWayAdjacency{}) },
+			build: func() (isis.TLV, error) { return isis.ThreeWayAdjacencyTLV(isis.ThreeWayAdjacency{}) },
 			wire:  []byte{0xf0, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00},
-			parse: func(tlv TLV) (any, error) { return tlv.ThreeWayAdjacency() },
-			want:  ThreeWayAdjacency{State: ThreeWayUp},
+			parse: func(tlv isis.TLV) (any, error) { return tlv.ThreeWayAdjacency() },
+			want:  isis.ThreeWayAdjacency{State: isis.ThreeWayUp},
 		},
 	}
 
@@ -433,8 +367,8 @@ func TestTLVRoundTrip(t *testing.T) {
 				t.Fatalf("unexpected encoding (-want +got):\n%s", d)
 			}
 
-			var tlvs []TLV
-			for w, err := range TLVs(b) {
+			var tlvs []isis.TLV
+			for w, err := range isis.TLVs(b) {
 				if err != nil {
 					t.Fatalf("failed to walk TLVs: %v", err)
 				}
@@ -464,28 +398,28 @@ func TestTypedTLVsParseRegion(t *testing.T) {
 	// Each TLV of a hello's variable length part parses through its typed
 	// accessor to the values the fixture states.
 	type region struct {
-		Areas      []AreaAddress
-		Protocols  []NLPID
+		Areas      []isis.AreaAddress
+		Protocols  []isis.NLPID
 		IPv4, IPv6 []netip.Addr
-		ThreeWay   ThreeWayAdjacency
+		ThreeWay   isis.ThreeWayAdjacency
 	}
 
 	var got region
-	for tlv, err := range TLVs(tlvRegion) {
+	for tlv, err := range isis.TLVs(tlvRegion) {
 		if err != nil {
 			t.Fatalf("failed to walk TLVs: %v", err)
 		}
 
 		switch tlv.Type {
-		case TLVAreaAddresses:
+		case isis.TLVAreaAddresses:
 			got.Areas, err = tlv.AreaAddresses()
-		case TLVProtocolsSupported:
+		case isis.TLVProtocolsSupported:
 			got.Protocols, err = tlv.ProtocolsSupported()
-		case TLVIPv4InterfaceAddresses:
+		case isis.TLVIPv4InterfaceAddresses:
 			got.IPv4, err = tlv.IPv4InterfaceAddresses()
-		case TLVIPv6InterfaceAddresses:
+		case isis.TLVIPv6InterfaceAddresses:
 			got.IPv6, err = tlv.IPv6InterfaceAddresses()
-		case TLVThreeWayAdjacency:
+		case isis.TLVThreeWayAdjacency:
 			got.ThreeWay, err = tlv.ThreeWayAdjacency()
 		default:
 			t.Fatalf("unexpected TLV in the region: %s", tlv.Type)
@@ -497,14 +431,14 @@ func TestTypedTLVsParseRegion(t *testing.T) {
 	}
 
 	want := region{
-		Areas:     []AreaAddress{mustAreaAddress(t, []byte{0x49, 0x00, 0x01})},
-		Protocols: []NLPID{NLPIDIPv4, NLPIDIPv6},
+		Areas:     []isis.AreaAddress{mustAreaAddress(t, []byte{0x49, 0x00, 0x01})},
+		Protocols: []isis.NLPID{isis.NLPIDIPv4, isis.NLPIDIPv6},
 		IPv4:      []netip.Addr{netip.MustParseAddr("192.0.2.1")},
 		IPv6:      []netip.Addr{netip.MustParseAddr("fe80::1")},
-		ThreeWay: ThreeWayAdjacency{
-			State:                          ThreeWayInitializing,
+		ThreeWay: isis.ThreeWayAdjacency{
+			State:                          isis.ThreeWayInitializing,
 			ExtendedLocalCircuitID:         42,
-			NeighborSystemID:               SystemID{0, 0, 0, 0, 0, 2},
+			NeighborSystemID:               isis.SystemID{0, 0, 0, 0, 0, 2},
 			NeighborExtendedLocalCircuitID: 11,
 		},
 	}
@@ -527,28 +461,28 @@ func TestThreeWayAdjacencyForms(t *testing.T) {
 	tests := []struct {
 		name string
 		v    []byte
-		want ThreeWayAdjacency
+		want isis.ThreeWayAdjacency
 	}{
 		{
 			name: "state only",
 			v:    []byte{0x02},
-			want: ThreeWayAdjacency{State: ThreeWayDown},
+			want: isis.ThreeWayAdjacency{State: isis.ThreeWayDown},
 		},
 		{
 			name: "neighbor not yet heard",
 			v:    []byte{0x02, 0x00, 0x00, 0x00, 0x2a},
-			want: ThreeWayAdjacency{
-				State:                  ThreeWayDown,
+			want: isis.ThreeWayAdjacency{
+				State:                  isis.ThreeWayDown,
 				ExtendedLocalCircuitID: 0x2a,
 			},
 		},
 		{
 			name: "neighbor system ID only",
 			v:    []byte{0x01, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02},
-			want: ThreeWayAdjacency{
-				State:                  ThreeWayInitializing,
+			want: isis.ThreeWayAdjacency{
+				State:                  isis.ThreeWayInitializing,
 				ExtendedLocalCircuitID: 0x2a,
-				NeighborSystemID:       SystemID{0, 0, 0, 0, 0, 2},
+				NeighborSystemID:       isis.SystemID{0, 0, 0, 0, 0, 2},
 			},
 		},
 		{
@@ -559,10 +493,10 @@ func TestThreeWayAdjacencyForms(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 				0x00, 0x00, 0x00, 0x0b,
 			},
-			want: ThreeWayAdjacency{
-				State:                          ThreeWayUp,
+			want: isis.ThreeWayAdjacency{
+				State:                          isis.ThreeWayUp,
 				ExtendedLocalCircuitID:         0x2a,
-				NeighborSystemID:               SystemID{0, 0, 0, 0, 0, 2},
+				NeighborSystemID:               isis.SystemID{0, 0, 0, 0, 0, 2},
 				NeighborExtendedLocalCircuitID: 0x0b,
 			},
 		},
@@ -572,8 +506,8 @@ func TestThreeWayAdjacencyForms(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tlv := TLV{
-				Type:  TLVThreeWayAdjacency,
+			tlv := isis.TLV{
+				Type:  isis.TLVThreeWayAdjacency,
 				Value: tt.v,
 			}
 
@@ -594,47 +528,47 @@ func TestTLVBuildRejects(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		build func() (TLV, error)
+		build func() (isis.TLV, error)
 		want  string
 	}{
 		{
 			name: "IPv6 in the IPv4 TLV",
-			build: func() (TLV, error) {
-				return IPv4InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("fe80::1")})
+			build: func() (isis.TLV, error) {
+				return isis.IPv4InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("fe80::1")})
 			},
 			want: "isis: fe80::1 is not an IPv4 address",
 		},
 		{
 			name: "IPv4 in the IPv6 TLV",
-			build: func() (TLV, error) {
-				return IPv6InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("192.0.2.1")})
+			build: func() (isis.TLV, error) {
+				return isis.IPv6InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("192.0.2.1")})
 			},
 			want: "isis: 192.0.2.1 is not an IPv6 address",
 		},
 		{
 			name: "IPv4 mapped IPv6 in the IPv6 TLV",
-			build: func() (TLV, error) {
-				return IPv6InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("::ffff:192.0.2.1")})
+			build: func() (isis.TLV, error) {
+				return isis.IPv6InterfaceAddressesTLV([]netip.Addr{netip.MustParseAddr("::ffff:192.0.2.1")})
 			},
 			want: "isis: ::ffff:192.0.2.1 is an IPv4 mapped address: unmap it and use the IPv4 interface address TLV",
 		},
 		{
 			name: "too many IPv6 interface addresses",
-			build: func() (TLV, error) {
-				return IPv6InterfaceAddressesTLV(slices.Repeat([]netip.Addr{netip.MustParseAddr("fe80::1")}, 16))
+			build: func() (isis.TLV, error) {
+				return isis.IPv6InterfaceAddressesTLV(slices.Repeat([]netip.Addr{netip.MustParseAddr("fe80::1")}, 16))
 			},
 			want: "isis: 16 IPv6 interface addresses need 256 octets, over the wire's 255",
 		},
 		{
 			name:  "three way state which does not exist",
-			build: func() (TLV, error) { return ThreeWayAdjacencyTLV(ThreeWayAdjacency{State: 3}) },
+			build: func() (isis.TLV, error) { return isis.ThreeWayAdjacencyTLV(isis.ThreeWayAdjacency{State: 3}) },
 			want:  "isis: three way state 3 does not exist",
 		},
 		{
 			name: "neighbor circuit without a neighbor system ID",
-			build: func() (TLV, error) {
-				return ThreeWayAdjacencyTLV(ThreeWayAdjacency{
-					State:                          ThreeWayUp,
+			build: func() (isis.TLV, error) {
+				return isis.ThreeWayAdjacencyTLV(isis.ThreeWayAdjacency{
+					State:                          isis.ThreeWayUp,
 					ExtendedLocalCircuitID:         0x2a,
 					NeighborExtendedLocalCircuitID: 0x0b,
 				})
@@ -664,92 +598,92 @@ func TestTLVParseRejects(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		tlv   TLV
-		parse func(TLV) error
+		tlv   isis.TLV
+		parse func(isis.TLV) error
 		want  string
 	}{
 		{
 			name:  "area addresses on the wrong code point",
-			tlv:   TLV{Type: TLVPadding},
-			parse: func(tlv TLV) error { _, err := tlv.AreaAddresses(); return err },
+			tlv:   isis.TLV{Type: isis.TLVPadding},
+			parse: func(tlv isis.TLV) error { _, err := tlv.AreaAddresses(); return err },
 			want:  "isis: TLV is Padding, not Area Addresses",
 		},
 		{
 			name: "area address past the TLV end",
-			tlv: TLV{
-				Type:  TLVAreaAddresses,
+			tlv: isis.TLV{
+				Type:  isis.TLVAreaAddresses,
 				Value: []byte{0x05, 0x49, 0x00},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.AreaAddresses(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.AreaAddresses(); return err },
 			want:  "isis: area address declares 5 octets but 2 remain",
 		},
 		{
 			name: "empty area address",
-			tlv: TLV{
-				Type:  TLVAreaAddresses,
+			tlv: isis.TLV{
+				Type:  isis.TLVAreaAddresses,
 				Value: []byte{0x00},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.AreaAddresses(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.AreaAddresses(); return err },
 			want:  "isis: area address must be 1 to 20 octets: 0 octets",
 		},
 		{
 			name: "partial IPv4 address",
-			tlv: TLV{
-				Type:  TLVIPv4InterfaceAddresses,
+			tlv: isis.TLV{
+				Type:  isis.TLVIPv4InterfaceAddresses,
 				Value: []byte{0xc0, 0x00, 0x02},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.IPv4InterfaceAddresses(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.IPv4InterfaceAddresses(); return err },
 			want:  "isis: IP Interface Address is 3 octets, not a whole number of IPv4 addresses",
 		},
 		{
 			name: "partial IPv6 address",
-			tlv: TLV{
-				Type:  TLVIPv6InterfaceAddresses,
+			tlv: isis.TLV{
+				Type:  isis.TLVIPv6InterfaceAddresses,
 				Value: make([]byte, 15),
 			},
-			parse: func(tlv TLV) error { _, err := tlv.IPv6InterfaceAddresses(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.IPv6InterfaceAddresses(); return err },
 			want:  "isis: IPv6 Interface Address is 15 octets, not a whole number of IPv6 addresses",
 		},
 		{
 			name: "IPv4 mapped IPv6 address",
-			tlv: TLV{
-				Type:  TLVIPv6InterfaceAddresses,
+			tlv: isis.TLV{
+				Type:  isis.TLVIPv6InterfaceAddresses,
 				Value: netip.MustParseAddr("::ffff:192.0.2.1").AsSlice(),
 			},
-			parse: func(tlv TLV) error { _, err := tlv.IPv6InterfaceAddresses(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.IPv6InterfaceAddresses(); return err },
 			want:  "isis: IPv6 Interface Address carries IPv4 mapped address ::ffff:192.0.2.1",
 		},
 		{
 			name: "three way adjacency of an undefined length",
-			tlv: TLV{
-				Type:  TLVThreeWayAdjacency,
+			tlv: isis.TLV{
+				Type:  isis.TLVThreeWayAdjacency,
 				Value: make([]byte, 7),
 			},
-			parse: func(tlv TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
 			want:  "isis: Point-to-Point Three-Way Adjacency is 7 octets, not 1, 5, 11, or 15",
 		},
 		{
 			name: "three way state which does not exist",
-			tlv: TLV{
-				Type:  TLVThreeWayAdjacency,
+			tlv: isis.TLV{
+				Type:  isis.TLVThreeWayAdjacency,
 				Value: []byte{0x03},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
 			want:  "isis: three way state 3 does not exist",
 		},
 		{
 			name: "zero neighbor system ID",
-			tlv: TLV{
-				Type:  TLVThreeWayAdjacency,
+			tlv: isis.TLV{
+				Type:  isis.TLVThreeWayAdjacency,
 				Value: []byte{0x01, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
 			want:  "isis: Point-to-Point Three-Way Adjacency names the zero neighbor system ID",
 		},
 		{
 			name: "zero neighbor system ID with a neighbor circuit",
-			tlv: TLV{
-				Type: TLVThreeWayAdjacency,
+			tlv: isis.TLV{
+				Type: isis.TLVThreeWayAdjacency,
 				Value: []byte{
 					0x00,
 					0x00, 0x00, 0x00, 0x2a,
@@ -757,7 +691,7 @@ func TestTLVParseRejects(t *testing.T) {
 					0x00, 0x00, 0x00, 0x0b,
 				},
 			},
-			parse: func(tlv TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
+			parse: func(tlv isis.TLV) error { _, err := tlv.ThreeWayAdjacency(); return err },
 			want:  "isis: Point-to-Point Three-Way Adjacency names the zero neighbor system ID",
 		},
 	}
@@ -783,17 +717,17 @@ func TestNLPIDString(t *testing.T) {
 
 	tests := []struct {
 		name string
-		n    NLPID
+		n    isis.NLPID
 		want string
 	}{
 		{
 			name: "IPv4",
-			n:    NLPIDIPv4,
+			n:    isis.NLPIDIPv4,
 			want: "IPv4",
 		},
 		{
 			name: "IPv6",
-			n:    NLPIDIPv6,
+			n:    isis.NLPIDIPv6,
 			want: "IPv6",
 		},
 		{
@@ -819,22 +753,22 @@ func TestThreeWayStateString(t *testing.T) {
 
 	tests := []struct {
 		name string
-		s    ThreeWayState
+		s    isis.ThreeWayState
 		want string
 	}{
 		{
 			name: "Up",
-			s:    ThreeWayUp,
+			s:    isis.ThreeWayUp,
 			want: "Up",
 		},
 		{
 			name: "Initializing",
-			s:    ThreeWayInitializing,
+			s:    isis.ThreeWayInitializing,
 			want: "Initializing",
 		},
 		{
 			name: "Down",
-			s:    ThreeWayDown,
+			s:    isis.ThreeWayDown,
 			want: "Down",
 		},
 		{
@@ -870,13 +804,13 @@ func FuzzTLVs(f *testing.F) {
 			gerr error
 		)
 
-		for tlv, err := range TLVs(b) {
+		for tlv, err := range isis.TLVs(b) {
 			if gerr != nil {
 				t.Fatalf("walk yielded %+v after its error: %v", tlv, gerr)
 			}
 
 			if err != nil {
-				if d := diff(t, TLV{}, tlv); d != "" {
+				if d := diff(t, isis.TLV{}, tlv); d != "" {
 					t.Fatalf("unexpected TLV alongside error (-want +got):\n%s", d)
 				}
 
@@ -904,7 +838,7 @@ func FuzzTLVs(f *testing.F) {
 }
 
 func FuzzTypedTLVs(f *testing.F) {
-	for tlv, err := range TLVs(tlvRegion) {
+	for tlv, err := range isis.TLVs(tlvRegion) {
 		if err != nil {
 			f.Fatalf("failed to walk TLVs: %v", err)
 		}
@@ -919,38 +853,38 @@ func FuzzTypedTLVs(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, b []byte) {
 		// A longer value has no TLV to arrive in.
-		if len(b) > maxTLVValueLen {
+		if len(b) > 255 {
 			return
 		}
 
-		fuzzTypedTLV(t, b, typedTLV[[]AreaAddress]{
-			Type:  TLVAreaAddresses,
-			Parse: TLV.AreaAddresses,
-			Build: AreaAddressesTLV,
+		fuzzTypedTLV(t, b, typedTLV[[]isis.AreaAddress]{
+			Type:  isis.TLVAreaAddresses,
+			Parse: isis.TLV.AreaAddresses,
+			Build: isis.AreaAddressesTLV,
 		})
 
-		fuzzTypedTLV(t, b, typedTLV[[]NLPID]{
-			Type:  TLVProtocolsSupported,
-			Parse: TLV.ProtocolsSupported,
-			Build: ProtocolsSupportedTLV,
-		})
-
-		fuzzTypedTLV(t, b, typedTLV[[]netip.Addr]{
-			Type:  TLVIPv4InterfaceAddresses,
-			Parse: TLV.IPv4InterfaceAddresses,
-			Build: IPv4InterfaceAddressesTLV,
+		fuzzTypedTLV(t, b, typedTLV[[]isis.NLPID]{
+			Type:  isis.TLVProtocolsSupported,
+			Parse: isis.TLV.ProtocolsSupported,
+			Build: isis.ProtocolsSupportedTLV,
 		})
 
 		fuzzTypedTLV(t, b, typedTLV[[]netip.Addr]{
-			Type:  TLVIPv6InterfaceAddresses,
-			Parse: TLV.IPv6InterfaceAddresses,
-			Build: IPv6InterfaceAddressesTLV,
+			Type:  isis.TLVIPv4InterfaceAddresses,
+			Parse: isis.TLV.IPv4InterfaceAddresses,
+			Build: isis.IPv4InterfaceAddressesTLV,
 		})
 
-		fuzzTypedTLV(t, b, typedTLV[ThreeWayAdjacency]{
-			Type:  TLVThreeWayAdjacency,
-			Parse: TLV.ThreeWayAdjacency,
-			Build: ThreeWayAdjacencyTLV,
+		fuzzTypedTLV(t, b, typedTLV[[]netip.Addr]{
+			Type:  isis.TLVIPv6InterfaceAddresses,
+			Parse: isis.TLV.IPv6InterfaceAddresses,
+			Build: isis.IPv6InterfaceAddressesTLV,
+		})
+
+		fuzzTypedTLV(t, b, typedTLV[isis.ThreeWayAdjacency]{
+			Type:  isis.TLVThreeWayAdjacency,
+			Parse: isis.TLV.ThreeWayAdjacency,
+			Build: isis.ThreeWayAdjacencyTLV,
 
 			// RFC 5303 section 3.1 lets a sender omit trailing fields, but
 			// the constructor emits only the 5 octet form without a
@@ -997,10 +931,10 @@ var tlvRegion = []byte{
 }
 
 // mustAreaAddress builds an AreaAddress or fails the test.
-func mustAreaAddress(t *testing.T, b []byte) AreaAddress {
+func mustAreaAddress(t *testing.T, b []byte) isis.AreaAddress {
 	t.Helper()
 
-	a, err := NewAreaAddress(b)
+	a, err := isis.NewAreaAddress(b)
 	if err != nil {
 		t.Fatalf("failed to build area address: %v", err)
 	}
@@ -1021,9 +955,9 @@ func stringsOf[T fmt.Stringer](vs []T) []string {
 // A typedTLV is one typed accessor and its constructor, for
 // fuzzTypedTLV.
 type typedTLV[T any] struct {
-	Type  TLVType
-	Parse func(TLV) (T, error)
-	Build func(T) (TLV, error)
+	Type  isis.TLVType
+	Parse func(isis.TLV) (T, error)
+	Build func(T) (isis.TLV, error)
 
 	// Encoding returns what the constructor emits for the value b parses
 	// to. Nil means b itself: the value has one encoding.
@@ -1040,7 +974,7 @@ func fuzzTypedTLV[T any](t *testing.T, b []byte, tt typedTLV[T]) {
 	// The value is a copy, so flipping it below leaves the fuzzer's input
 	// untouched for the accessors which follow.
 	v := bytes.Clone(b)
-	got, err := tt.Parse(TLV{
+	got, err := tt.Parse(isis.TLV{
 		Type:  tt.Type,
 		Value: v,
 	})

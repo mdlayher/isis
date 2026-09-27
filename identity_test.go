@@ -1,7 +1,9 @@
-package isis
+package isis_test
 
 import (
 	"testing"
+
+	"github.com/mdlayher/isis"
 )
 
 func TestParseNET(t *testing.T) {
@@ -11,31 +13,31 @@ func TestParseNET(t *testing.T) {
 		name string
 		s    string
 		area string
-		id   SystemID
+		id   isis.SystemID
 	}{
 		{
 			name: "a two octet area",
 			s:    "49.0001.0000.0000.0001.00",
 			area: "49.0001",
-			id:   SystemID{0, 0, 0, 0, 0, 1},
+			id:   isis.SystemID{0, 0, 0, 0, 0, 1},
 		},
 		{
 			name: "a one octet area",
 			s:    "49.0000.0000.0002.00",
 			area: "49",
-			id:   SystemID{0, 0, 0, 0, 0, 2},
+			id:   isis.SystemID{0, 0, 0, 0, 0, 2},
 		},
 		{
 			name: "periods are decoration",
 			s:    "490001000000000001" + "00",
 			area: "49.0001",
-			id:   SystemID{0, 0, 0, 0, 0, 1},
+			id:   isis.SystemID{0, 0, 0, 0, 0, 1},
 		},
 		{
 			name: "a full twenty octet NSAP",
 			s:    "49.0001.0203.0405.0607.0809.0a0b.0000.0000.0003.00",
 			area: "49.0001.0203.0405.0607.0809.0a0b",
-			id:   SystemID{0, 0, 0, 0, 0, 3},
+			id:   isis.SystemID{0, 0, 0, 0, 0, 3},
 		},
 	}
 
@@ -43,7 +45,7 @@ func TestParseNET(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			area, id, err := ParseNET(tt.s)
+			area, id, err := isis.ParseNET(tt.s)
 			if err != nil {
 				t.Fatalf("failed to parse NET: %v", err)
 			}
@@ -91,7 +93,7 @@ func TestParseNETRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			area, id, err := ParseNET(tt.s)
+			area, id, err := isis.ParseNET(tt.s)
 			if err == nil {
 				t.Fatalf("expected an error, but parsed %s and %s", area, id)
 			}
@@ -111,18 +113,18 @@ func TestIdentityStrings(t *testing.T) {
 	}{
 		{
 			name: "system ID",
-			got:  SystemID{0, 0, 0, 0, 0, 1}.String(),
+			got:  isis.SystemID{0, 0, 0, 0, 0, 1}.String(),
 			want: "0000.0000.0001",
 		},
 		{
 			name: "LSP ID",
-			got:  LSPID{SystemID: SystemID{0, 0, 0, 0, 0, 1}}.String(),
+			got:  isis.LSPID{SystemID: isis.SystemID{0, 0, 0, 0, 0, 1}}.String(),
 			want: "0000.0000.0001.00-00",
 		},
 		{
 			name: "pseudonode LSP ID fragment",
-			got: LSPID{
-				SystemID:   SystemID{0, 0, 0, 0, 0, 1},
+			got: isis.LSPID{
+				SystemID:   isis.SystemID{0, 0, 0, 0, 0, 1},
 				Pseudonode: 2,
 				Fragment:   3,
 			}.String(),
@@ -130,37 +132,37 @@ func TestIdentityStrings(t *testing.T) {
 		},
 		{
 			name: "SNPA",
-			got:  AllISs().String(),
+			got:  isis.AllISs().String(),
 			want: "09:00:2b:00:00:05",
 		},
 		{
 			name: "level",
-			got:  Level2.String(),
+			got:  isis.Level2.String(),
 			want: "Level 2",
 		},
 		{
 			name: "level set",
-			got:  Level1And2.String(),
+			got:  isis.Level1And2.String(),
 			want: "Level 1 and 2",
 		},
 		{
 			name: "topology",
-			got:  TopologyIPv6Unicast.String(),
+			got:  isis.TopologyIPv6Unicast.String(),
 			want: "IPv6 unicast",
 		},
 		{
 			name: "unnamed topology",
-			got:  Topology(3).String(),
+			got:  isis.Topology(3).String(),
 			want: "MT 3",
 		},
 		{
 			name: "circuit type",
-			got:  CircuitPointToPoint.String(),
+			got:  isis.CircuitPointToPoint.String(),
 			want: "point to point",
 		},
 		{
 			name: "unset circuit type",
-			got:  CircuitType(0).String(),
+			got:  isis.CircuitType(0).String(),
 			want: "unknown(0)",
 		},
 	}
@@ -181,22 +183,22 @@ func TestLevelSetHas(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		s      LevelSet
+		s      isis.LevelSet
 		l1, l2 bool
 	}{
 		{
 			name: "Level 1 only",
-			s:    Level1Only,
+			s:    isis.Level1Only,
 			l1:   true,
 		},
 		{
 			name: "Level 2 only",
-			s:    Level2Only,
+			s:    isis.Level2Only,
 			l2:   true,
 		},
 		{
 			name: "both levels",
-			s:    Level1And2,
+			s:    isis.Level1And2,
 			l1:   true,
 			l2:   true,
 		},
@@ -210,11 +212,11 @@ func TestLevelSetHas(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := tt.s.Has(Level1); got != tt.l1 {
+			if got := tt.s.Has(isis.Level1); got != tt.l1 {
 				t.Fatalf("unexpected Level 1 membership: want %t, got %t", tt.l1, got)
 			}
 
-			if got := tt.s.Has(Level2); got != tt.l2 {
+			if got := tt.s.Has(isis.Level2); got != tt.l2 {
 				t.Fatalf("unexpected Level 2 membership: want %t, got %t", tt.l2, got)
 			}
 		})
@@ -224,8 +226,8 @@ func TestLevelSetHas(t *testing.T) {
 func TestNewAreaAddressRejects(t *testing.T) {
 	t.Parallel()
 
-	for _, n := range []int{0, maxAreaAddressLen + 1} {
-		a, err := NewAreaAddress(make([]byte, n))
+	for _, n := range []int{0, 21} {
+		a, err := isis.NewAreaAddress(make([]byte, n))
 		if err == nil {
 			t.Fatalf("expected an error for %d octets, but built %s", n, a)
 		}

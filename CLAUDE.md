@@ -176,6 +176,9 @@ Markdown documents:
 - Independent scenarios are individual top-level Test functions. `t.Run`
   is for a table's cases and for subtests sharing a fixture built by the
   parent, such as one Test with per-case setup on a shared listener.
+- A Test of an unexported identifier is named `Test_` followed by the
+  identifier as declared, such as `Test_appendPadding` for
+  `appendPadding`, so the name marks it as reaching past the exported API.
 - Test scenarios, not coverage. Cover paths a plausible real-world scenario
   hits, framed on behavior; 100% coverage is not a goal.
 - Compare a complex type with `cmp.Diff`, never field by field or with
