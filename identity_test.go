@@ -2,8 +2,6 @@ package isis
 
 import (
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestParseNET(t *testing.T) {
@@ -54,8 +52,8 @@ func TestParseNET(t *testing.T) {
 				t.Fatalf("unexpected area address: want %q, got %q", tt.area, got)
 			}
 
-			if diff := cmp.Diff(tt.id, id); diff != "" {
-				t.Fatalf("unexpected system ID (-want +got):\n%s", diff)
+			if d := diff(t, tt.id, id); d != "" {
+				t.Fatalf("unexpected system ID (-want +got):\n%s", d)
 			}
 		})
 	}

@@ -3,8 +3,6 @@ package isis
 import (
 	"encoding/binary"
 	"testing"
-
-	"github.com/google/go-cmp/cmp"
 )
 
 func TestHeaderRoundTrip(t *testing.T) {
@@ -64,8 +62,8 @@ func TestHeaderRoundTrip(t *testing.T) {
 			}
 
 			wire := []byte{0x83, tt.li, 1, 0, uint8(tt.typ), 1, 0, 0}
-			if diff := cmp.Diff(wire, b); diff != "" {
-				t.Fatalf("unexpected header octets (-want +got):\n%s", diff)
+			if d := diff(t, wire, b); d != "" {
+				t.Fatalf("unexpected header octets (-want +got):\n%s", d)
 			}
 
 			h, err := ParseHeader(pad(b, int(tt.li)))
@@ -78,8 +76,8 @@ func TestHeaderRoundTrip(t *testing.T) {
 				LengthIndicator: tt.li,
 			}
 
-			if diff := cmp.Diff(want, h); diff != "" {
-				t.Fatalf("unexpected header (-want +got):\n%s", diff)
+			if d := diff(t, want, h); d != "" {
+				t.Fatalf("unexpected header (-want +got):\n%s", d)
 			}
 
 			// The parsed header carries its length indicator, which
@@ -89,8 +87,8 @@ func TestHeaderRoundTrip(t *testing.T) {
 				t.Fatalf("failed to append parsed header: %v", err)
 			}
 
-			if diff := cmp.Diff(append([]byte{0xff}, wire...), b); diff != "" {
-				t.Fatalf("unexpected appended octets (-want +got):\n%s", diff)
+			if d := diff(t, append([]byte{0xff}, wire...), b); d != "" {
+				t.Fatalf("unexpected appended octets (-want +got):\n%s", d)
 			}
 		})
 	}
@@ -194,8 +192,8 @@ func TestParseHeaderAccepts(t *testing.T) {
 				LengthIndicator: 20,
 			}
 
-			if diff := cmp.Diff(want, h); diff != "" {
-				t.Fatalf("unexpected header (-want +got):\n%s", diff)
+			if d := diff(t, want, h); d != "" {
+				t.Fatalf("unexpected header (-want +got):\n%s", d)
 			}
 		})
 	}
