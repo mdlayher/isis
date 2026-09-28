@@ -16,7 +16,7 @@ type PointToPointHello struct {
 	// circuit type field. It must name at least one level.
 	Levels LevelSet
 
-	// SourceID is the sending Instance's system identifier.
+	// SourceID is the sending instance's system identifier.
 	SourceID SystemID
 
 	// HoldingTime is how long a receiver keeps the adjacency alive

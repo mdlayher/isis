@@ -26,8 +26,8 @@ var llcHeader = [llcLen]byte{0xfe, 0xfe, 0x03}
 // header. It is never modified.
 //
 // The first test is the one which is easy to leave out: a packet socket
-// is handed the interface's own outgoing multicast back, so without it an
-// Instance hears its own hellos.
+// is handed the interface's own outgoing multicast back, so without it a
+// Circuit hears its own hellos.
 var isisFilter = []bpf.Instruction{
 	// 0: this system's own transmissions, echoed back.
 	bpf.LoadExtension{Num: bpf.ExtType},

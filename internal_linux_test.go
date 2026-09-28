@@ -76,7 +76,7 @@ func Test_isisFilter(t *testing.T) {
 }
 
 // A packet socket is handed the interface's own outgoing multicast back,
-// and the only thing standing between that and an Instance hearing its own
+// and the only thing standing between that and a Circuit hearing its own
 // hellos is one jump offset: the filter tests the packet type first and
 // jumps an outgoing frame to the drop.
 func Test_isisFilterOwnTransmissions(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// A SystemID is the six octet identifier of one Instance, unique within
+// A SystemID is the six octet identifier of one instance, unique within
 // the routing domain. It is not an address and is not derived from one.
 type SystemID [6]byte
 
@@ -18,11 +18,11 @@ func (s SystemID) String() string {
 	return fmt.Sprintf("%02x%02x.%02x%02x.%02x%02x", s[0], s[1], s[2], s[3], s[4], s[5])
 }
 
-// An LSPID identifies one link state PDU: the SystemID of the Instance
+// An LSPID identifies one link state PDU: the SystemID of the instance
 // which originated it, the pseudonode octet naming a broadcast circuit's
-// Pseudonode or zero for the Instance itself, and the fragment number.
+// Pseudonode or zero for the instance itself, and the fragment number.
 type LSPID struct {
-	// SystemID is the originating Instance.
+	// SystemID is the originating instance.
 	SystemID SystemID
 
 	// Pseudonode names one of the originator's broadcast circuits, or is
@@ -41,7 +41,7 @@ func (l LSPID) String() string {
 }
 
 // An SNPA, a subnetwork point of attachment, is a neighbor's link layer
-// address on a Circuit: the destination an Instance puts on a frame.
+// address on a Circuit: the destination a Circuit puts on a frame.
 // IS-IS over Ethernet, including the RFC 5309 point to point form,
 // addresses frames by six octet link layer address, so an SNPA is six
 // octets.
@@ -156,7 +156,7 @@ const (
 	maxAreaAddressLen = maxNSAPLen
 )
 
-// An AreaAddress is the variable length prefix of an Instance's NSAP
+// An AreaAddress is the variable length prefix of an instance's NSAP
 // which names its area. A Level 1 adjacency requires one in common and a
 // Level 2 adjacency does not. It is comparable by value, so it serves as
 // a map key.

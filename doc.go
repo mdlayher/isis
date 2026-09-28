@@ -13,16 +13,19 @@
 //   - [Transport] carries PDUs between one Circuit and the link it
 //     attaches to, with [ErrDropped] for a frame an implementation
 //     discards. [ListenEthernet] opens the Ethernet implementation.
+//   - [Circuit] runs one system's attachment to a link over its
+//     [Transport], sending hellos and reporting every PDU in both
+//     directions to [CircuitConfig.OnPDU].
 //
 // # Glossary
 //
 // The acronyms this package uses, spelled out once each:
 //
-//   - DIS: designated intermediate system, the Instance elected on a
+//   - DIS: designated intermediate system, the instance elected on a
 //     broadcast link to speak for the link as a whole.
 //   - IGP: interior gateway protocol, a routing protocol which runs within
 //     one routing domain. IS-IS is one.
-//   - NET: network entity title, the NSAP which names an Instance itself
+//   - NET: network entity title, the NSAP which names an instance itself
 //     rather than a service on it. [ParseNET] parses one.
 //   - NSAP: network service access point, the ISO 8348 address of up to 20
 //     octets from which an [AreaAddress] and a [SystemID] are drawn.

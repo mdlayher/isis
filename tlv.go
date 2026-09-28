@@ -156,7 +156,7 @@ func (t TLV) expect(want TLVType) error {
 }
 
 // AreaAddressesTLV builds the area addresses TLV, code 1, described in
-// ISO 10589 clause 9.5. An Instance sends it in every hello and in link
+// ISO 10589 clause 9.5. An instance sends it in every hello and in link
 // state PDU fragment zero.
 func AreaAddressesTLV(as []AreaAddress) (TLV, error) {
 	var v []byte
@@ -230,7 +230,7 @@ func (n NLPID) String() string {
 
 // ProtocolsSupportedTLV builds the protocols supported TLV, code 129,
 // described in RFC 1195 section 4.2. Section 5.2 requires it in every
-// hello and in link state PDU fragment zero of an IP capable Instance.
+// hello and in link state PDU fragment zero of an IP capable instance.
 func ProtocolsSupportedTLV(ps []NLPID) (TLV, error) {
 	if len(ps) > maxTLVValueLen {
 		return TLV{}, fmt.Errorf("isis: %d protocols are over the wire's %d", len(ps), maxTLVValueLen)

@@ -19,8 +19,8 @@ type memFrame struct {
 }
 
 // A memTransport is one end of an in-memory link. failRead injects the
-// terminal fault of a real socket and drop silences the end, which is how
-// a test runs a holding time out.
+// terminal fault of a real socket, failWrites a transient one, and drop
+// silences the end, which is how a test runs a holding time out.
 type memTransport struct {
 	local   isis.SNPA
 	in, out chan memFrame
@@ -29,8 +29,9 @@ type memTransport struct {
 	done    chan struct{}
 	once    sync.Once
 
-	mu      sync.Mutex
-	dropped bool
+	mu       sync.Mutex
+	dropped  bool
+	writeErr error
 }
 
 var _ isis.Transport = (*memTransport)(nil)
@@ -63,7 +64,7 @@ func memLink(a, b isis.SNPA, maxPDU int) (*memTransport, *memTransport) {
 }
 
 // reopen returns a fresh end on the same link, which is how a test
-// restarts an Instance over a Transport its predecessor closed.
+// restarts a Circuit over a Transport its predecessor closed.
 func (t *memTransport) reopen() *memTransport {
 	return &memTransport{
 		local:  t.local,
@@ -107,8 +108,12 @@ func (t *memTransport) writeFrom(src isis.SNPA, b []byte) error {
 	}
 
 	t.mu.Lock()
-	dropped := t.dropped
+	dropped, err := t.dropped, t.writeErr
 	t.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
 
 	if dropped {
 		return nil
@@ -130,6 +135,14 @@ func (t *memTransport) drop(v bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.dropped = v
+}
+
+// failWrites makes every later write return err, or succeed again when
+// err is nil.
+func (t *memTransport) failWrites(err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.writeErr = err
 }
 
 // failRead makes a pending or future read return err.

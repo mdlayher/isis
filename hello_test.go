@@ -321,7 +321,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 			name: "no levels",
 			h: isis.PointToPointHello{
 				SourceID:    isis.SystemID{1},
-				HoldingTime: time.Second,
+				HoldingTime: 1 * time.Second,
 			},
 			err: "isis: hello circuit type 0 names no level",
 		},
@@ -329,7 +329,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 			name: "zero source ID",
 			h: isis.PointToPointHello{
 				Levels:      isis.Level2Only,
-				HoldingTime: time.Second,
+				HoldingTime: 1 * time.Second,
 			},
 			err: "isis: hello source system ID must be nonzero",
 		},
@@ -364,7 +364,7 @@ func TestPointToPointHelloAppendRejects(t *testing.T) {
 			h: isis.PointToPointHello{
 				Levels:      isis.Level2Only,
 				SourceID:    isis.SystemID{1},
-				HoldingTime: time.Second,
+				HoldingTime: 1 * time.Second,
 				TLVs: []isis.TLV{{
 					Type:  isis.TLVPadding,
 					Value: make([]byte, 256),

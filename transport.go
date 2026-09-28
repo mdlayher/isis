@@ -13,7 +13,7 @@ import "errors"
 // A Transport must be safe for concurrent use by multiple goroutines.
 type Transport interface {
 	// ReadPDU blocks until a PDU arrives, then fills b with exactly one
-	// whole PDU and reports the neighbor's SNPA. An Instance learns of
+	// whole PDU and reports the neighbor's SNPA. A Circuit learns of
 	// transport death only through ReadPDU: any error not wrapping
 	// ErrDropped is terminal. ReadPDU must not retain b after returning.
 	ReadPDU(b []byte) (n int, src SNPA, err error)
@@ -36,7 +36,7 @@ type Transport interface {
 	LocalSNPA() SNPA
 
 	// Close unblocks a pending ReadPDU, which then returns an error. It is
-	// called concurrently with a pending ReadPDU so an Instance can always
+	// called concurrently with a pending ReadPDU so a Circuit can always
 	// tear down.
 	Close() error
 }

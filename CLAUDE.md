@@ -72,6 +72,12 @@ Expressions:
   and a place for the two to drift; reach through the original at every
   use. The exception is a value read under a lock and used after it is
   released, where the local is the copy which makes that safe.
+- A duration used as a value carries its count: `1 * time.Second`,
+  `-1 * time.Second`, `1 * time.Hour`, never a bare unit, so every length
+  of time reads as a number and a unit. A unit in a conversion stays bare,
+  as in `d / time.Second`, `d % time.Second`, or the rounding up of
+  `(d + time.Second - 1) / time.Second`, since there it names a unit rather
+  than a length.
 
 Signatures:
 
@@ -177,7 +183,7 @@ Markdown documents:
   makes the race detector interleave tests rather than run them in a
   fixed order.
 - What that rule demands of a test: give each test its own link,
-  transport, and Instance, bind port 0 and read the port back rather than
+  transport, and Circuit, bind port 0 and read the port back rather than
   picking a number, and never reach for process-wide state. `t.Setenv` and
   `t.Chdir` are process-wide and panic in a parallel test, so a test
   needing either is one of the exceptions and says so.

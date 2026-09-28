@@ -15,12 +15,15 @@ it:
 - `Transport` carries PDUs between one Circuit and the link it attaches to,
   with `ErrDropped` for a frame an implementation discards.
   `ListenEthernet` opens the Ethernet implementation.
+- `Circuit` runs one system's attachment to a link over its `Transport`,
+  sending hellos and reporting every PDU in both directions to
+  `CircuitConfig.OnPDU`.
 
 ## Platform support
 
-The codec and `Transport` layers are portable Go. `ListenEthernet`, the
-Ethernet packet socket, is only supported on Linux; elsewhere, it returns an
-error which wraps `errors.ErrUnsupported`.
+The codec, `Transport`, and `Circuit` layers are portable Go.
+`ListenEthernet`, the Ethernet packet socket, is only supported on Linux;
+elsewhere, it returns an error which wraps `errors.ErrUnsupported`.
 
 ## Testing
 
