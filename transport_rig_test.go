@@ -47,20 +47,20 @@ func memLink(a, b isis.SNPA, maxPDU int) (*memTransport, *memTransport) {
 	ba := make(chan memFrame, memLinkFrames)
 
 	return &memTransport{
-			local:  a,
-			in:     ba,
-			out:    ab,
-			maxPDU: maxPDU,
-			errC:   make(chan error, 1),
-			done:   make(chan struct{}),
-		}, &memTransport{
-			local:  b,
-			in:     ab,
-			out:    ba,
-			maxPDU: maxPDU,
-			errC:   make(chan error, 1),
-			done:   make(chan struct{}),
-		}
+		local:  a,
+		in:     ba,
+		out:    ab,
+		maxPDU: maxPDU,
+		errC:   make(chan error, 1),
+		done:   make(chan struct{}),
+	}, &memTransport{
+		local:  b,
+		in:     ab,
+		out:    ba,
+		maxPDU: maxPDU,
+		errC:   make(chan error, 1),
+		done:   make(chan struct{}),
+	}
 }
 
 // reopen returns a fresh end on the same link, which is how a test
