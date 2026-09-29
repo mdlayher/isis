@@ -44,15 +44,15 @@ func TestPointToPointHelloTypedTLVs(t *testing.T) {
 	}
 
 	if h.Levels != isis.Level2Only {
-		t.Fatalf("unexpected levels: want %s, got %s", isis.Level2Only, h.Levels)
+		t.Fatalf("unexpected levels: want %q, got %q", isis.Level2Only, h.Levels)
 	}
 
 	if want := (isis.SystemID{0, 0, 0, 0, 0, 1}); h.SourceID != want {
-		t.Fatalf("unexpected source ID: want %s, got %s", want, h.SourceID)
+		t.Fatalf("unexpected source ID: want %q, got %q", want, h.SourceID)
 	}
 
 	if h.HoldingTime != 30*time.Second {
-		t.Fatalf("unexpected holding time: want %s, got %s", 30*time.Second, h.HoldingTime)
+		t.Fatalf("unexpected holding time: want %q, got %q", 30*time.Second, h.HoldingTime)
 	}
 
 	// Every modeled TLV decodes to the value the fixture was built from,

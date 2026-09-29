@@ -136,7 +136,7 @@ func TestNewCircuitRejects(t *testing.T) {
 			}
 
 			if err.Error() != tt.err {
-				t.Fatalf("unexpected error: got %q, want %q", err, tt.err)
+				t.Fatalf("unexpected error: want %q, got %q", tt.err, err)
 			}
 
 			if tt.is != nil && !errors.Is(err, tt.is) {
@@ -209,7 +209,7 @@ func TestCircuitRunsOnce(t *testing.T) {
 		}
 
 		if want := "isis: circuit is already running or has run"; err.Error() != want {
-			t.Fatalf("unexpected second run error: got %q, want %q", err, want)
+			t.Fatalf("unexpected second run error: want %q, got %q", want, err)
 		}
 	})
 }
@@ -234,7 +234,7 @@ func TestCircuitTransportFailureEndsRun(t *testing.T) {
 		}
 
 		if want := "isis: circuit 10 transport read failed: the interface went away"; err.Error() != want {
-			t.Fatalf("unexpected run error text: got %q, want %q", err, want)
+			t.Fatalf("unexpected run error text: want %q, got %q", want, err)
 		}
 	})
 }

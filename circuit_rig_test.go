@@ -194,7 +194,7 @@ func (n *node) wantAdjacency(t *testing.T, want isis.AdjacencyState) adjEvent {
 	select {
 	case ae := <-n.adjC:
 		if ae.Event.State != want {
-			t.Fatalf("unexpected adjacency state: got %s, want %s", ae.Event.State, want)
+			t.Fatalf("unexpected adjacency state: want %q, got %q", want, ae.Event.State)
 		}
 
 		return ae

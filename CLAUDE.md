@@ -207,6 +207,10 @@ Markdown documents:
   came back. Pinning it proves the input reached the check the case is
   named for, which is how two hello cases were found failing on an
   earlier check instead.
+- A failure message which prints both values puts the expected one
+  first, as `want %q, got %q`, so every message in the tree reads the
+  same way. A string, or a value printed through its String method, is
+  quoted with `%q`, so an empty or padded value is visible.
 - Compare a complex type with `cmp.Diff`, never field by field or with
   `slices.Equal`: slices, maps, and structs all go through it, and the
   failure prints the difference rather than the two whole values for a

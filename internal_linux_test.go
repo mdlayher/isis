@@ -108,7 +108,7 @@ func Test_isisFilterOwnTransmissions(t *testing.T) {
 	}
 
 	if want, got := len(isisFilter)-1, 2+int(jump.SkipTrue); got != want {
-		t.Fatalf("an outgoing frame does not jump to the drop: want index %d, got %d", want, got)
+		t.Fatalf("an outgoing frame does not jump to the drop: want %d, got %d", want, got)
 	}
 }
 

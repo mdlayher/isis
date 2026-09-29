@@ -116,7 +116,7 @@ func TestCircuitHoldingTimeExpires(t *testing.T) {
 
 		ae := a.waitAdjacency(t, isis.AdjacencyDown)
 		if want := isis.DownHoldingTimeExpired; ae.Event.Reason != want {
-			t.Fatalf("unexpected reason: got %q, want %q", ae.Event.Reason, want)
+			t.Fatalf("unexpected reason: want %q, got %q", want, ae.Event.Reason)
 		}
 
 		// The holding time runs from the last hello a heard, which b sent
@@ -154,7 +154,7 @@ func TestCircuitFarewellLeavesNeighborInitializing(t *testing.T) {
 		// b reports its own adjacency Down as it stops.
 		ae := b.wantAdjacency(t, isis.AdjacencyDown)
 		if want := isis.DownCircuitStopped; ae.Event.Reason != want {
-			t.Fatalf("unexpected reason on b: got %q, want %q", ae.Event.Reason, want)
+			t.Fatalf("unexpected reason on b: want %q, got %q", want, ae.Event.Reason)
 		}
 
 		a.wantAdjacency(t, isis.AdjacencyInitializing)
@@ -164,7 +164,7 @@ func TestCircuitFarewellLeavesNeighborInitializing(t *testing.T) {
 
 		ae = a.wantAdjacency(t, isis.AdjacencyDown)
 		if want := isis.DownHoldingTimeExpired; ae.Event.Reason != want {
-			t.Fatalf("unexpected reason on a: got %q, want %q", ae.Event.Reason, want)
+			t.Fatalf("unexpected reason on a: want %q, got %q", want, ae.Event.Reason)
 		}
 	})
 }
@@ -201,7 +201,7 @@ func TestCircuitRestartWithNewCircuitID(t *testing.T) {
 		a.drainTap()
 
 		if got := a.sentThreeWay(t).NeighborExtendedLocalCircuitID; got != restartedID {
-			t.Fatalf("unexpected echoed circuit ID: got %#x, want %#x", got, restartedID)
+			t.Fatalf("unexpected echoed circuit ID: want %#x, got %#x", restartedID, got)
 		}
 	})
 }
@@ -389,11 +389,11 @@ func TestCircuitNeighborChangesSNPA(t *testing.T) {
 		// new address.
 		ae := a.wantAdjacency(t, isis.AdjacencyDown)
 		if want := isis.DownHoldingTimeExpired; ae.Event.Reason != want {
-			t.Fatalf("unexpected reason: got %q, want %q", ae.Event.Reason, want)
+			t.Fatalf("unexpected reason: want %q, got %q", want, ae.Event.Reason)
 		}
 
 		if ae.Event.SNPA != snpaC {
-			t.Fatalf("unexpected SNPA: got %s, want %s", ae.Event.SNPA, snpaC)
+			t.Fatalf("unexpected SNPA: want %q, got %q", snpaC, ae.Event.SNPA)
 		}
 	})
 }
@@ -420,7 +420,7 @@ func TestCircuitLevel2AcrossAreas(t *testing.T) {
 		for _, n := range []*node{a, b} {
 			ae := n.waitAdjacency(t, isis.AdjacencyUp)
 			if want := isis.Level2Only; ae.Event.Levels != want {
-				t.Fatalf("unexpected levels: got %q, want %q", ae.Event.Levels, want)
+				t.Fatalf("unexpected levels: want %q, got %q", want, ae.Event.Levels)
 			}
 		}
 	})
@@ -482,7 +482,7 @@ func TestCircuitNeighborLeavesCommonLevel(t *testing.T) {
 
 		ae := a.wantAdjacency(t, isis.AdjacencyDown)
 		if want := isis.DownNoLevelInCommon; ae.Event.Reason != want {
-			t.Fatalf("unexpected reason: got %q, want %q", ae.Event.Reason, want)
+			t.Fatalf("unexpected reason: want %q, got %q", want, ae.Event.Reason)
 		}
 
 		if err := peer.WritePDU(isis.AllISs(), l1); err != nil {
