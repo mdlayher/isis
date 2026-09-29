@@ -332,13 +332,14 @@ func (n *node) sentThreeWayStates(t *testing.T) []isis.ThreeWayState {
 	return out
 }
 
-// scriptedHello encodes a hello from endB carrying the given three way
-// adjacency TLV, for a test which plays the far end of the link itself.
-func scriptedHello(t *testing.T, a isis.ThreeWayAdjacency) []byte {
+// scriptedHello encodes a hello from endB running levels and carrying the
+// given three way adjacency TLV, for a test which plays the far end of the
+// link itself.
+func scriptedHello(t *testing.T, levels isis.LevelSet, a isis.ThreeWayAdjacency) []byte {
 	t.Helper()
 
 	h := &isis.PointToPointHello{
-		Levels:      isis.Level2Only,
+		Levels:      levels,
 		SourceID:    endB.sys,
 		HoldingTime: holdingTime,
 		TLVs: []isis.TLV{

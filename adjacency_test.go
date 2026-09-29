@@ -227,7 +227,7 @@ func TestCircuitIgnoresStaleNeighborUp(t *testing.T) {
 			NeighborExtendedLocalCircuitID: endA.id,
 		}
 
-		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, stale)); err != nil {
+		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, isis.Level2Only, stale)); err != nil {
 			t.Fatalf("failed to write hello: %v", err)
 		}
 
@@ -242,7 +242,7 @@ func TestCircuitIgnoresStaleNeighborUp(t *testing.T) {
 		// Once the neighbor has seen this system's Down and moved to
 		// Initializing, the handshake completes.
 		stale.State = isis.ThreeWayInitializing
-		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, stale)); err != nil {
+		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, isis.Level2Only, stale)); err != nil {
 			t.Fatalf("failed to write hello: %v", err)
 		}
 
@@ -395,5 +395,105 @@ func TestCircuitNeighborChangesSNPA(t *testing.T) {
 		if ae.Event.SNPA != snpaC {
 			t.Fatalf("unexpected SNPA: got %s, want %s", ae.Event.SNPA, snpaC)
 		}
+	})
+}
+
+// ISO 10589 clause 8.2.4.2: with no area address in common the adjacency
+// is valid only between two Level 2 systems, which is the whole point of
+// Level 2. Both ends run both levels, so the narrowing alone is what
+// leaves Level 2.
+func TestCircuitLevel2AcrossAreas(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		one := circuitConfig(t, endA)
+		one.Levels = isis.Level1And2
+
+		other := circuitConfig(t, endB)
+		other.AreaAddresses = []isis.AreaAddress{mustAreaAddress(t, []byte{0x49, 0x00, 0x02})}
+		other.Levels = isis.Level1And2
+
+		a, b := newPair(t, &one, &other)
+		defer a.stop(t)
+		defer b.stop(t)
+
+		for _, n := range []*node{a, b} {
+			ae := n.waitAdjacency(t, isis.AdjacencyUp)
+			if want := isis.Level2Only; ae.Event.Levels != want {
+				t.Fatalf("unexpected levels: got %q, want %q", ae.Event.Levels, want)
+			}
+		}
+	})
+}
+
+// Two Circuits which run no level in common form nothing in either
+// direction, however long they shout at each other.
+func TestCircuitNoLevelInCommon(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		one := circuitConfig(t, endA)
+		one.Levels = isis.Level1Only
+
+		a, b := newPair(t, &one, nil)
+		defer a.stop(t)
+		defer b.stop(t)
+
+		time.Sleep(10 * helloInterval)
+		synctest.Wait()
+
+		a.wantNoAdjacency(t)
+		b.wantNoAdjacency(t)
+	})
+}
+
+// A neighbor whose hellos stop naming a level this system runs takes the
+// adjacency Down at once, rather than after a holding time, and its later
+// hellos form nothing.
+func TestCircuitNeighborLeavesCommonLevel(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		trA, peer := memLink(snpaA, snpaB, linkPDULength)
+
+		a := newNode(t, trA, circuitConfig(t, endA))
+		defer a.stop(t)
+
+		// A neighbor which has already heard this system completes the
+		// handshake with one hello.
+		tw := isis.ThreeWayAdjacency{
+			State:                          isis.ThreeWayInitializing,
+			ExtendedLocalCircuitID:         endB.id,
+			NeighborSystemID:               endA.sys,
+			NeighborExtendedLocalCircuitID: endA.id,
+		}
+
+		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, isis.Level2Only, tw)); err != nil {
+			t.Fatalf("failed to write hello: %v", err)
+		}
+
+		a.wantAdjacency(t, isis.AdjacencyUp)
+
+		tw.State = isis.ThreeWayUp
+		l1 := scriptedHello(t, isis.Level1Only, tw)
+		if err := peer.WritePDU(isis.AllISs(), l1); err != nil {
+			t.Fatalf("failed to write Level 1 hello: %v", err)
+		}
+
+		ae := a.wantAdjacency(t, isis.AdjacencyDown)
+		if want := isis.DownNoLevelInCommon; ae.Event.Reason != want {
+			t.Fatalf("unexpected reason: got %q, want %q", ae.Event.Reason, want)
+		}
+
+		if err := peer.WritePDU(isis.AllISs(), l1); err != nil {
+			t.Fatalf("failed to write Level 1 hello: %v", err)
+		}
+
+		// The bubble's clock passes the holding time the last Level 2 hello
+		// set, so neither a hello nor a holding timer reports anything more.
+		time.Sleep(holdingTime + helloInterval)
+		synctest.Wait()
+
+		a.wantNoAdjacency(t)
 	})
 }

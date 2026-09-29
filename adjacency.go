@@ -3,6 +3,7 @@ package isis
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"time"
 )
 
@@ -50,6 +51,10 @@ const (
 	// DownNeighborSystemIDChanged reports that a hello named a system other
 	// than the neighbor's (RFC 3719 section 9).
 	DownNeighborSystemIDChanged
+
+	// DownNoLevelInCommon reports that a hello left the two systems no
+	// level in common (ISO 10589 clause 8.2.4.2).
+	DownNoLevelInCommon
 )
 
 // String returns a description of a DownReason.
@@ -63,6 +68,8 @@ func (r DownReason) String() string {
 		return "circuit stopped"
 	case DownNeighborSystemIDChanged:
 		return "neighbor system ID changed"
+	case DownNoLevelInCommon:
+		return "no level in common"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))
 	}
@@ -76,7 +83,9 @@ type AdjacencyEvent struct {
 	// State is the state the adjacency has reached.
 	State AdjacencyState
 
-	// Levels is the set of levels the adjacency carries.
+	// Levels is the set of levels the adjacency carries: the levels both
+	// systems run, narrowed to Level 2 when they share no area address
+	// (ISO 10589 clause 8.2.4.2).
 	Levels LevelSet
 
 	// Neighbor is the neighbor's system identifier.
@@ -162,4 +171,17 @@ func nextThreeWay(local, rx ThreeWayState) ThreeWayState {
 
 		return ThreeWayUp
 	}
+}
+
+// sharesArea reports whether two sets of area addresses intersect. ISO
+// 10589 clause 8.2.4.2 makes a common area address the condition for an
+// adjacency valid at Level 1.
+func sharesArea(local, remote []AreaAddress) bool {
+	for _, a := range local {
+		if slices.Contains(remote, a) {
+			return true
+		}
+	}
+
+	return false
 }

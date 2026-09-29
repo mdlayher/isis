@@ -91,7 +91,9 @@ type CircuitConfig struct {
 	SystemID SystemID
 
 	// AreaAddresses are the areas this system claims, advertised in every
-	// hello. At least one is required.
+	// hello. At least one is required, since ISO 10589 clause 8.2.4.2
+	// compares them on every received hello even where Level 2 makes the
+	// comparison moot.
 	AreaAddresses []AreaAddress
 
 	// Levels is the set of levels the Circuit runs. It is required.
@@ -578,6 +580,23 @@ func (c *Circuit) receiveHello(ctx context.Context, now time.Time, p receivedPDU
 		c.down(now, DownNeighborSystemIDChanged)
 	}
 
+	// ISO 10589 clause 8.2.4.2: with an area address in common the
+	// adjacency is valid for every level the two systems share; with none
+	// it is valid only between two Level 2 systems, and is Level 2 only.
+	levels := c.cfg.Levels & h.Levels
+	if !sharesArea(c.cfg.AreaAddresses, areas) {
+		levels &= Level2Only
+	}
+
+	if levels == 0 {
+		if c.log.Enabled(ctx, slog.LevelDebug) {
+			c.log.Debug("dropped hello: no level in common", "src", p.src, "neighbor", h.SourceID, "levels", h.Levels)
+		}
+
+		c.down(now, DownNoLevelInCommon)
+		return
+	}
+
 	rx := c.receivedThreeWayState(threeWay)
 
 	// A neighbor which sends no three way adjacency TLV gets ISO 10589's
@@ -609,7 +628,7 @@ func (c *Circuit) receiveHello(ctx context.Context, now time.Time, p receivedPDU
 	if a == nil {
 		a = &adjacency{
 			neighbor: h.SourceID,
-			levels:   c.cfg.Levels,
+			levels:   levels,
 			threeWay: ThreeWayDown,
 		}
 
@@ -619,6 +638,10 @@ func (c *Circuit) receiveHello(ctx context.Context, now time.Time, p receivedPDU
 	// The neighbor's link layer address may change under it, such as on
 	// a replaced interface, without disturbing the adjacency.
 	a.snpa = p.src
+
+	// A change in levels alone is not a state change, so the next event
+	// carries it and none fires for it.
+	a.levels = levels
 	a.areas, a.protocols, a.v4, a.v6 = areas, protocols, v4, v6
 	a.remoteCircuitID = threeWay.ExtendedLocalCircuitID
 	a.expires = now.Add(h.HoldingTime)
