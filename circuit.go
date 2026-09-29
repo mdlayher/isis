@@ -407,35 +407,49 @@ func (c *Circuit) Run(ctx context.Context) error {
 
 	// The Circuit greets the link as soon as it runs, and sending that
 	// hello schedules the next.
-	c.transmit(ctx, time.Now())
+	now := time.Now()
+	c.transmit(ctx, now)
 
-	t := time.NewTimer(time.Until(c.nextDeadline()))
+	t := time.NewTimer(c.nextDeadline().Sub(now))
 	defer t.Stop()
 
 	for {
+		var (
+			p        receivedPDU
+			received bool
+		)
+
 		select {
 		case <-egctx.Done():
 			// Closing the Transport releases a reader waiting on a read. A
 			// cancellation wins a race with a reader failure, whose error
 			// is then the teardown's own.
+			now = time.Now()
 			if err := ctx.Err(); err != nil {
-				c.shutdown(ctx, withFarewell)
+				c.shutdown(ctx, now, withFarewell)
 				_ = eg.Wait()
 				return err
 			}
 
-			c.shutdown(ctx, withoutFarewell)
+			c.shutdown(ctx, now, withoutFarewell)
 			return eg.Wait()
 		case <-t.C:
 			// Next tick.
-		case p := <-pduC:
-			c.receive(ctx, time.Now(), p)
+		case p = <-pduC:
+			received = true
 		}
 
-		// Whatever woke the Circuit, anything due runs before it sleeps
-		// again, and the timer is rearmed for the next deadline.
-		c.runDue(ctx, time.Now())
-		t.Reset(time.Until(c.nextDeadline()))
+		// The clock is read once per wakeup, so what receive records, what
+		// runDue finds due, and the deadline the timer is rearmed for all
+		// name the same instant. Whatever woke the Circuit, anything due
+		// runs before it sleeps again.
+		now = time.Now()
+		if received {
+			c.receive(ctx, now, p)
+		}
+
+		c.runDue(ctx, now)
+		t.Reset(c.nextDeadline().Sub(now))
 	}
 }
 
@@ -687,11 +701,10 @@ func (c *Circuit) nextDeadline() time.Time {
 	return c.helloAt
 }
 
-// shutdown takes the adjacency down and closes the Transport. With
-// farewell set it first sends one last hello, which advertises the three
-// way state Down now that no adjacency remains.
-func (c *Circuit) shutdown(ctx context.Context, farewell bool) {
-	now := time.Now()
+// shutdown takes the adjacency down at time now and closes the Transport.
+// With farewell set it first sends one last hello, which advertises the
+// three way state Down now that no adjacency remains.
+func (c *Circuit) shutdown(ctx context.Context, now time.Time, farewell bool) {
 	c.down(now, DownCircuitStopped)
 
 	if farewell {
