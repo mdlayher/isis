@@ -77,11 +77,19 @@ type tapEvent struct {
 	Event   isis.PDUEvent
 }
 
-// A node is one Circuit under test, with the channel its tap feeds and
+// An adjEvent is one call of a node's OnAdjacency hook: the Circuit which
+// fired and the event it reported.
+type adjEvent struct {
+	Circuit *isis.Circuit
+	Event   isis.AdjacencyEvent
+}
+
+// A node is one Circuit under test, with the channels its hooks feed and
 // the goroutine its Run occupies, which wg tracks and stop joins.
 type node struct {
 	c      *isis.Circuit
 	tr     *memTransport
+	adjC   chan adjEvent
 	pduC   chan tapEvent
 	runC   chan error
 	cancel context.CancelFunc
@@ -114,8 +122,18 @@ func newNode(t *testing.T, tr *memTransport, cfg isis.CircuitConfig) *node {
 
 	n := &node{
 		tr:   tr,
+		adjC: make(chan adjEvent, 64),
 		pduC: make(chan tapEvent, 256),
 		runC: make(chan error, 1),
+	}
+
+	// Every adjacency event is kept: a test which misses one would pass
+	// over the transition it asserts.
+	cfg.OnAdjacency = func(c *isis.Circuit, e isis.AdjacencyEvent) {
+		n.adjC <- adjEvent{
+			Circuit: c,
+			Event:   e,
+		}
 	}
 
 	cfg.OnPDU = func(c *isis.Circuit, e isis.PDUEvent) {
@@ -165,6 +183,54 @@ func (n *node) wait(t *testing.T) error {
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for run to return")
 		return nil
+	}
+}
+
+// wantAdjacency waits for the next adjacency state change and requires it
+// to be want.
+func (n *node) wantAdjacency(t *testing.T, want isis.AdjacencyState) adjEvent {
+	t.Helper()
+
+	select {
+	case ae := <-n.adjC:
+		if ae.Event.State != want {
+			t.Fatalf("unexpected adjacency state: got %s, want %s", ae.Event.State, want)
+		}
+
+		return ae
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for adjacency state %s", want)
+		return adjEvent{}
+	}
+}
+
+// waitAdjacency waits for the adjacency to reach want, passing over the
+// states it reaches on the way.
+func (n *node) waitAdjacency(t *testing.T, want isis.AdjacencyState) adjEvent {
+	t.Helper()
+
+	for {
+		select {
+		case ae := <-n.adjC:
+			if ae.Event.State == want {
+				return ae
+			}
+		case <-time.After(timeout):
+			t.Fatalf("timed out waiting for adjacency state %s", want)
+			return adjEvent{}
+		}
+	}
+}
+
+// wantNoAdjacency requires that no adjacency state change has been
+// reported.
+func (n *node) wantNoAdjacency(t *testing.T) {
+	t.Helper()
+
+	select {
+	case ae := <-n.adjC:
+		t.Fatalf("unexpected adjacency event: %+v", ae.Event)
+	default:
 	}
 }
 
@@ -243,4 +309,87 @@ func threeWayOf(t *testing.T, b []byte) isis.ThreeWayAdjacency {
 
 	t.Fatal("hello carried no three way adjacency TLV")
 	return isis.ThreeWayAdjacency{}
+}
+
+// sentThreeWayStates drains the tap and returns the three way state each
+// hello this node sent advertised, with consecutive repeats collapsed so
+// the result is the progression rather than the cadence.
+func (n *node) sentThreeWayStates(t *testing.T) []isis.ThreeWayState {
+	t.Helper()
+
+	var out []isis.ThreeWayState
+	for _, te := range n.tapped() {
+		if te.Event.Direction != isis.DirectionSent {
+			continue
+		}
+
+		s := threeWayOf(t, te.Event.Raw).State
+		if len(out) == 0 || out[len(out)-1] != s {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// scriptedHello encodes a hello from endB carrying the given three way
+// adjacency TLV, for a test which plays the far end of the link itself.
+func scriptedHello(t *testing.T, a isis.ThreeWayAdjacency) []byte {
+	t.Helper()
+
+	h := &isis.PointToPointHello{
+		Levels:      isis.Level2Only,
+		SourceID:    endB.sys,
+		HoldingTime: holdingTime,
+		TLVs: []isis.TLV{
+			mustAreaAddressesTLV(t, []byte{0x49, 0x00, 0x01}),
+			mustProtocolsTLV(t),
+			mustThreeWayTLV(t, a),
+		},
+	}
+
+	b, err := h.AppendBinary(nil)
+	if err != nil {
+		t.Fatalf("failed to append hello: %v", err)
+	}
+
+	return b
+}
+
+// mustAreaAddressesTLV builds the area addresses TLV for the area b or
+// fails the test.
+func mustAreaAddressesTLV(t *testing.T, b []byte) isis.TLV {
+	t.Helper()
+
+	tlv, err := isis.AreaAddressesTLV([]isis.AreaAddress{mustAreaAddress(t, b)})
+	if err != nil {
+		t.Fatalf("failed to build area addresses TLV: %v", err)
+	}
+
+	return tlv
+}
+
+// mustProtocolsTLV builds the protocols supported TLV for IPv4 and IPv6 or
+// fails the test.
+func mustProtocolsTLV(t *testing.T) isis.TLV {
+	t.Helper()
+
+	tlv, err := isis.ProtocolsSupportedTLV([]isis.NLPID{isis.NLPIDIPv4, isis.NLPIDIPv6})
+	if err != nil {
+		t.Fatalf("failed to build protocols supported TLV: %v", err)
+	}
+
+	return tlv
+}
+
+// mustThreeWayTLV builds the three way adjacency TLV or fails the test.
+func mustThreeWayTLV(t *testing.T, a isis.ThreeWayAdjacency) isis.TLV {
+	t.Helper()
+
+	tlv, err := isis.ThreeWayAdjacencyTLV(a)
+	if err != nil {
+		t.Fatalf("failed to build three way adjacency TLV: %v", err)
+	}
+
+	return tlv
 }

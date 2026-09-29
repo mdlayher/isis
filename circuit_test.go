@@ -108,10 +108,11 @@ func TestNewCircuitRejects(t *testing.T) {
 			err: "isis: IPv6 interface address 2001:db8::1 is not link-local",
 		},
 		{
-			// The rig's hello is 61 octets before padding.
+			// The rig's largest hello, which names a neighbor, is 71 octets
+			// before padding.
 			name: "a hello too large for the transport",
-			tr:   &memTransport{maxPDU: 60},
-			err:  "isis: hello is 61 octets, more than the transport's 60",
+			tr:   &memTransport{maxPDU: 70},
+			err:  "isis: hello is 71 octets, more than the transport's 70",
 		},
 		{
 			name: "a transport too small for a PDU",
@@ -135,7 +136,7 @@ func TestNewCircuitRejects(t *testing.T) {
 			}
 
 			if err.Error() != tt.err {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: got %q, want %q", err, tt.err)
 			}
 
 			if tt.is != nil && !errors.Is(err, tt.is) {
@@ -208,7 +209,7 @@ func TestCircuitRunsOnce(t *testing.T) {
 		}
 
 		if want := "isis: circuit is already running or has run"; err.Error() != want {
-			t.Fatalf("unexpected second run error: %v", err)
+			t.Fatalf("unexpected second run error: got %q, want %q", err, want)
 		}
 	})
 }
@@ -233,7 +234,7 @@ func TestCircuitTransportFailureEndsRun(t *testing.T) {
 		}
 
 		if want := "isis: circuit 10 transport read failed: the interface went away"; err.Error() != want {
-			t.Fatalf("unexpected run error text: %v", err)
+			t.Fatalf("unexpected run error text: got %q, want %q", err, want)
 		}
 	})
 }
@@ -309,9 +310,9 @@ func TestCircuitHelloCadence(t *testing.T) {
 }
 
 // A PDU from the far end is reported once through the tap as received,
-// naming the Circuit, with its source, decoded header, and octets, and
-// provokes nothing else. A PDU whose common header fails validation is
-// reported too, with the validation error and no header.
+// naming the Circuit, with its source, decoded header, and octets. A PDU
+// whose common header fails validation is reported too, with the
+// validation error and no header.
 func TestCircuitTapsReceivedPDUs(t *testing.T) {
 	t.Parallel()
 
@@ -349,8 +350,9 @@ func TestCircuitTapsReceivedPDUs(t *testing.T) {
 
 		synctest.Wait()
 
-		// Every PDU sent is tapped too, so a tap holding only these two
-		// events proves neither PDU provoked a hello in reply.
+		// The hello forms an adjacency, whose change of three way state
+		// sends a hello in reply at once. The tap records that as sent,
+		// and only what was received is this test's.
 		want := []tapEvent{
 			{
 				Circuit: a.c,
@@ -376,7 +378,7 @@ func TestCircuitTapsReceivedPDUs(t *testing.T) {
 			},
 		}
 
-		if d := diff(t, want, a.tapped()); d != "" {
+		if d := diff(t, want, received(a.tapped())); d != "" {
 			t.Fatalf("unexpected tap events (-want +got):\n%s", d)
 		}
 	})
@@ -467,10 +469,12 @@ func TestCircuitShutdown(t *testing.T) {
 			t.Fatalf("unexpected tap events after the last hello: %+v", tes)
 		}
 
+		// The neighbor answers the last hello at once, since it moves its
+		// adjacency to Initializing, so only what it received is checked.
 		synctest.Wait()
 
-		tes := a.tapped()
-		if len(tes) != 1 || tes[0].Event.Direction != isis.DirectionReceived || tes[0].Event.SNPA != snpaB {
+		tes := received(a.tapped())
+		if len(tes) != 1 || tes[0].Event.SNPA != snpaB {
 			t.Fatalf("expected the last hello to reach the neighbor alone, but tapped %+v", tes)
 		}
 
@@ -519,4 +523,11 @@ func helloTLVs(t *testing.T, cfg isis.CircuitConfig) []isis.TLV {
 	}
 
 	return []isis.TLV{areas, protocols, v4, v6, threeWay}
+}
+
+// received returns the events of tes which report a received PDU.
+func received(tes []tapEvent) []tapEvent {
+	return slices.DeleteFunc(tes, func(te tapEvent) bool {
+		return te.Event.Direction != isis.DirectionReceived
+	})
 }

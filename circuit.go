@@ -139,25 +139,38 @@ type CircuitConfig struct {
 	// permits in a hello. A family with no addresses sends no TLV.
 	IPv4Addresses, IPv6Addresses []netip.Addr
 
-	// OnPDU, if set, observes every PDU in both directions, for audit and
-	// diagnostics. It steers nothing.
+	// OnAdjacency, if set, is called on each adjacency state change:
+	// Initializing, Up, and Down. It is the signal a caller gates
+	// forwarding and liveness checks such as a BFD session on, and it
+	// carries the neighbor's interface addresses so the caller has the
+	// endpoints to dial.
 	//
 	// The hook runs on the goroutine running Run and must return
-	// promptly: a stalled hook stalls the Circuit's hellos. A hook which
-	// must block does that work on a new goroutine. c names the Circuit
-	// which fired, so one hook function may serve many.
+	// promptly: a stalled hook stalls the Circuit's hellos and its
+	// adjacency's holding timer. A hook which must block does that work
+	// on a new goroutine. c names the Circuit which fired, so one hook
+	// function may serve many.
+	OnAdjacency func(c *Circuit, e AdjacencyEvent)
+
+	// OnPDU, if set, observes every PDU in both directions, for audit and
+	// diagnostics. It steers nothing: adjacency logic belongs on
+	// OnAdjacency.
+	//
+	// See OnAdjacency for the hook contract.
 	OnPDU func(c *Circuit, e PDUEvent)
 
-	// Logger, if set, records the Circuit starting at Info, a hello which
-	// cannot be built at Error, and dropped PDUs, failed writes, and a
-	// Transport which fails to close at Debug. nil discards everything.
+	// Logger, if set, records the Circuit starting and adjacency state
+	// changes at Info, a hello which cannot be built at Error, and dropped
+	// PDUs, failed writes, and a Transport which fails to close at Debug.
+	// nil discards everything.
 	Logger *slog.Logger
 }
 
 // A Circuit is one system's attachment to a single link: it sends that
-// link's hellos over its Transport and reports every PDU in both
-// directions to CircuitConfig.OnPDU. NewCircuit builds one and Run runs
-// it.
+// link's hellos over its Transport, forms one adjacency with its neighbor
+// and reports its state changes to CircuitConfig.OnAdjacency, and reports
+// every PDU in both directions to CircuitConfig.OnPDU. NewCircuit builds
+// one and Run runs it.
 //
 // Every field is owned by the goroutine running Run, so a Circuit must
 // not be touched from a hook beyond comparing its identity.
@@ -169,6 +182,10 @@ type Circuit struct {
 
 	// helloAt is when the next hello is due.
 	helloAt time.Time
+
+	// adj is the adjacency with the neighbor, or nil when there is none.
+	// A point to point Circuit holds at most one adjacency.
+	adj *adjacency
 
 	// hello is the point to point hello the Circuit sends, built and
 	// proven to fit the link by NewCircuit. Only its last TLV, the three
@@ -329,7 +346,16 @@ func (c *Circuit) buildHello() error {
 	// last, and appendPointToPointHello fills it before each hello.
 	c.hello.TLVs = append(c.hello.TLVs, TLV{})
 
-	b, err := c.appendPointToPointHello(nil)
+	// The three way adjacency TLV is ten octets longer once it names a
+	// neighbor, so the proof encodes that form: the largest hello the
+	// Circuit can send. The neighbor fields are fixed width, so any
+	// nonzero neighbor is as long as a real one.
+	b, err := c.appendPointToPointHello(nil, ThreeWayAdjacency{
+		State:                          ThreeWayUp,
+		ExtendedLocalCircuitID:         c.cfg.ExtendedLocalCircuitID,
+		NeighborSystemID:               SystemID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+		NeighborExtendedLocalCircuitID: math.MaxUint32,
+	})
 	if err != nil {
 		return err
 	}
@@ -342,8 +368,10 @@ func (c *Circuit) buildHello() error {
 }
 
 // Run runs the Circuit until ctx is canceled or its Transport fails: a
-// hello at once and another each hello interval after, with every PDU in
-// both directions reported to OnPDU. Cancellation sends a last hello
+// hello at once and another each hello interval after, the RFC 5303 three
+// way handshake and holding timer of the adjacency with its neighbor, and
+// every PDU in both directions reported to OnPDU. Every exit takes the
+// adjacency Down and reports it. Cancellation then sends a last hello
 // advertising three way Down, so a neighbor leaves Up at once rather than
 // after a holding time (RFC 5303 section 3.2). Every exit closes the
 // Transport and waits for the reader goroutine. Nothing retries: a caller
@@ -399,7 +427,7 @@ func (c *Circuit) Run(ctx context.Context) error {
 		case <-t.C:
 			// Next tick.
 		case p := <-pduC:
-			c.receive(ctx, p)
+			c.receive(ctx, time.Now(), p)
 		}
 
 		// Whatever woke the Circuit, anything due runs before it sleeps
@@ -457,9 +485,10 @@ func (c *Circuit) read(ctx context.Context, pduC chan<- receivedPDU) error {
 // None of them starts a goroutine or waits on a read, so one goroutine can
 // drive any number of Circuits through them: Run drives one.
 
-// receive reports one PDU to the tap. A Circuit acts on no PDU it
-// receives: each is reported and dropped.
-func (c *Circuit) receive(ctx context.Context, p receivedPDU) {
+// receive reports one PDU to the tap and applies a point to point hello
+// to the Circuit's adjacency at time now. Every other PDU is reported and
+// dropped.
+func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 	hdr, err := ParseHeader(p.pdu)
 	c.tap(PDUEvent{
 		Direction: DirectionReceived,
@@ -477,29 +506,214 @@ func (c *Circuit) receive(ctx context.Context, p receivedPDU) {
 		return
 	}
 
-	// TODO(mdlayher): act on a point to point hello, which is where a
-	// Circuit forms its adjacency.
+	if hdr.Type != PDUPointToPointHello {
+		return
+	}
+
+	c.receiveHello(ctx, now, p)
 }
 
-// runDue sends the hello if it has come due.
+// receiveHello applies one received point to point hello to the Circuit's
+// adjacency at time now. A hello which does not parse or fails a check is
+// dropped and counted against the adjacency's holding time, never a
+// reason to tear a Circuit down.
+func (c *Circuit) receiveHello(ctx context.Context, now time.Time, p receivedPDU) {
+	h, err := ParsePointToPointHello(p.pdu)
+	if err != nil {
+		if c.log.Enabled(ctx, slog.LevelDebug) {
+			c.log.Debug("dropped hello", "src", p.src, "err", err)
+		}
+
+		return
+	}
+
+	// Outgoing multicast is delivered back to a packet socket. The
+	// Transport's filter drops it in the kernel and this is the second
+	// line, which ISO 10589 requires of LAN hello processing anyway.
+	if p.src == c.t.LocalSNPA() || h.SourceID == c.cfg.SystemID {
+		if c.log.Enabled(ctx, slog.LevelDebug) {
+			c.log.Debug("dropped hello from this system", "src", p.src)
+		}
+
+		return
+	}
+
+	var (
+		areas     []AreaAddress
+		protocols []NLPID
+		v4, v6    []netip.Addr
+		threeWay  ThreeWayAdjacency
+		haveTW    bool
+	)
+
+	for _, tlv := range h.TLVs {
+		var err error
+		switch tlv.Type {
+		case TLVAreaAddresses:
+			areas, err = tlv.AreaAddresses()
+		case TLVProtocolsSupported:
+			protocols, err = tlv.ProtocolsSupported()
+		case TLVIPv4InterfaceAddresses:
+			v4, err = tlv.IPv4InterfaceAddresses()
+		case TLVIPv6InterfaceAddresses:
+			v6, err = tlv.IPv6InterfaceAddresses()
+		case TLVThreeWayAdjacency:
+			threeWay, err = tlv.ThreeWayAdjacency()
+			haveTW = true
+		}
+
+		if err != nil {
+			if c.log.Enabled(ctx, slog.LevelDebug) {
+				c.log.Debug("dropped hello", "src", p.src, "neighbor", h.SourceID, "err", err)
+			}
+
+			return
+		}
+	}
+
+	// RFC 3719 section 9: a hello whose source differs from the
+	// adjacency's neighbor deletes that adjacency. The system ID names a
+	// point to point neighbor, not its link layer address.
+	if a := c.adj; a != nil && a.neighbor != h.SourceID {
+		c.down(now, DownNeighborSystemIDChanged)
+	}
+
+	rx := c.receivedThreeWayState(threeWay)
+
+	// A neighbor which sends no three way adjacency TLV gets ISO 10589's
+	// assumption that the link works in both directions, which is what
+	// FRR does with the handshake disabled.
+	next := ThreeWayUp
+	if haveTW {
+		local := ThreeWayDown
+		if c.adj != nil {
+			local = c.adj.threeWay
+		}
+
+		next = nextThreeWay(local, rx)
+	}
+
+	if next == ThreeWayDown {
+		// The neighbor claims an adjacency this system does not hold, and
+		// this system holds none: a held adjacency is never three way
+		// Down. Advertising Down is what drives the neighbor back through
+		// Initializing.
+		if c.log.Enabled(ctx, slog.LevelDebug) {
+			c.log.Debug("neighbor claims an adjacency this system does not hold", "src", p.src, "neighbor", h.SourceID)
+		}
+
+		return
+	}
+
+	a := c.adj
+	if a == nil {
+		a = &adjacency{
+			neighbor: h.SourceID,
+			levels:   c.cfg.Levels,
+			threeWay: ThreeWayDown,
+		}
+
+		c.adj = a
+	}
+
+	// The neighbor's link layer address may change under it, such as on
+	// a replaced interface, without disturbing the adjacency.
+	a.snpa = p.src
+	a.areas, a.protocols, a.v4, a.v6 = areas, protocols, v4, v6
+	a.remoteCircuitID = threeWay.ExtendedLocalCircuitID
+	a.expires = now.Add(h.HoldingTime)
+
+	state := AdjacencyInitializing
+	if next == ThreeWayUp {
+		state = AdjacencyUp
+	}
+
+	// The neighbor cannot complete its own handshake until it sees this
+	// system's new state, so a change is worth a hello now rather than at
+	// the next interval.
+	if a.threeWay != next {
+		a.threeWay = next
+		c.helloAt = now
+	}
+
+	if a.state != state {
+		a.state = state
+		c.adjacencyEvent(a, 0)
+	}
+}
+
+// runDue expires the adjacency if its holding time has run out at time
+// now, then sends the hello if it has come due.
 func (c *Circuit) runDue(ctx context.Context, now time.Time) {
+	if a := c.adj; a != nil && !now.Before(a.expires) {
+		c.down(now, DownHoldingTimeExpired)
+	}
+
 	if !now.Before(c.helloAt) {
 		c.transmit(ctx, now)
 	}
 }
 
-// nextDeadline is when the Circuit next has work to do.
-func (c *Circuit) nextDeadline() time.Time { return c.helloAt }
+// nextDeadline is when the Circuit next has work to do: the next hello,
+// or the adjacency's holding timer if that fires first.
+func (c *Circuit) nextDeadline() time.Time {
+	if a := c.adj; a != nil && a.expires.Before(c.helloAt) {
+		return a.expires
+	}
 
-// shutdown closes the Transport. With farewell set it first sends one
-// last hello, which advertises the three way state Down.
+	return c.helloAt
+}
+
+// shutdown takes the adjacency down and closes the Transport. With
+// farewell set it first sends one last hello, which advertises the three
+// way state Down now that no adjacency remains.
 func (c *Circuit) shutdown(ctx context.Context, farewell bool) {
+	now := time.Now()
+	c.down(now, DownCircuitStopped)
+
 	if farewell {
-		c.transmit(ctx, time.Now())
+		c.transmit(ctx, now)
 	}
 
 	if err := c.t.Close(); err != nil {
 		c.log.Debug("failed to close transport", "err", err)
+	}
+}
+
+// down deletes the adjacency at time now and reports it Down for reason.
+// The Circuit then advertises Down, and its next hello is due at once so
+// the neighbor stops routing through the link as soon as it can. down is
+// a no-op when the Circuit holds no adjacency or holds one already Down.
+func (c *Circuit) down(now time.Time, reason DownReason) {
+	a := c.adj
+	if a == nil {
+		return
+	}
+
+	c.adj = nil
+	if a.state == AdjacencyDown {
+		return
+	}
+
+	a.state = AdjacencyDown
+	c.helloAt = now
+	c.adjacencyEvent(a, reason)
+}
+
+// adjacencyEvent logs one adjacency state change and reports it to the
+// caller.
+func (c *Circuit) adjacencyEvent(a *adjacency, reason DownReason) {
+	c.log.Info(
+		"adjacency state change",
+		"neighbor", a.neighbor.String(),
+		"snpa", a.snpa.String(),
+		"state", a.state,
+		"levels", a.levels,
+		"reason", reason,
+	)
+
+	if h := c.cfg.OnAdjacency; h != nil {
+		h(c, a.event(reason))
 	}
 }
 
@@ -509,7 +723,7 @@ func (c *Circuit) shutdown(ctx context.Context, farewell bool) {
 func (c *Circuit) transmit(ctx context.Context, now time.Time) {
 	c.helloAt = now.Add(jittered(c.cfg.HelloInterval))
 
-	b, err := c.appendPointToPointHello(c.wb[:0])
+	b, err := c.appendPointToPointHello(c.wb[:0], c.threeWayAdjacency())
 	if err != nil {
 		c.log.Error("failed to build hello", "err", err)
 		return
@@ -537,10 +751,10 @@ func (c *Circuit) transmit(ctx context.Context, now time.Time) {
 	}
 }
 
-// appendPointToPointHello encodes the Circuit's hello onto b, with the
-// three way adjacency TLV for this hello in its last slot.
-func (c *Circuit) appendPointToPointHello(b []byte) ([]byte, error) {
-	threeWay, err := ThreeWayAdjacencyTLV(c.threeWayAdjacency())
+// appendPointToPointHello encodes the Circuit's hello onto b, with tw as
+// the three way adjacency TLV in its last slot.
+func (c *Circuit) appendPointToPointHello(b []byte, tw ThreeWayAdjacency) ([]byte, error) {
+	threeWay, err := ThreeWayAdjacencyTLV(tw)
 	if err != nil {
 		return nil, err
 	}
@@ -550,12 +764,38 @@ func (c *Circuit) appendPointToPointHello(b []byte) ([]byte, error) {
 }
 
 // threeWayAdjacency is the three way adjacency TLV's value for the next
-// hello. A Circuit holding no adjacency advertises Down with its own
-// extended local circuit ID and names no neighbor.
+// hello: this system's own view of the adjacency, and what it has heard
+// of the neighbor. A Circuit holding no adjacency advertises Down with its
+// own extended local circuit ID and names no neighbor.
 func (c *Circuit) threeWayAdjacency() ThreeWayAdjacency {
-	return ThreeWayAdjacency{
+	t := ThreeWayAdjacency{
 		State:                  ThreeWayDown,
 		ExtendedLocalCircuitID: c.cfg.ExtendedLocalCircuitID,
+	}
+
+	if a := c.adj; a != nil {
+		t.State = a.threeWay
+		t.NeighborSystemID = a.neighbor
+		t.NeighborExtendedLocalCircuitID = a.remoteCircuitID
+	}
+
+	return t
+}
+
+// receivedThreeWayState is the three way state a hello's TLV tw counts
+// as. RFC 5303 section 3.2: a TLV which names a neighbor other than this
+// system, by system ID or extended local circuit ID, is not evidence that
+// this system has been heard, so it counts as Down.
+func (c *Circuit) receivedThreeWayState(tw ThreeWayAdjacency) ThreeWayState {
+	switch {
+	case tw.NeighborSystemID == (SystemID{}):
+		// The neighbor has heard no one yet, so its state stands.
+		return tw.State
+	case tw.NeighborSystemID != c.cfg.SystemID,
+		tw.NeighborExtendedLocalCircuitID != c.cfg.ExtendedLocalCircuitID:
+		return ThreeWayDown
+	default:
+		return tw.State
 	}
 }
 

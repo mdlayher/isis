@@ -15,7 +15,13 @@
 //     discards. [ListenEthernet] opens the Ethernet implementation.
 //   - [Circuit] runs one system's attachment to a link over its
 //     [Transport], sending hellos and reporting every PDU in both
-//     directions to [CircuitConfig.OnPDU].
+//     directions to [CircuitConfig.OnPDU]. It forms one adjacency with its
+//     neighbor through the RFC 5303 three way handshake and reports its
+//     state changes to [CircuitConfig.OnAdjacency].
+//
+// This package has no daemon and computes no routes on its own. A caller
+// owns the forwarding table, liveness, and policy, and gates them on the
+// adjacency events a Circuit reports.
 //
 // # Glossary
 //
