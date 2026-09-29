@@ -82,6 +82,40 @@ const (
 	defaultHoldingMultiplier = 10
 )
 
+// A PaddingMode says when a Circuit pads its hellos to the link's full
+// PDU size. Padding proves the link carries a full sized PDU before an
+// adjacency depends on it (ISO 10589 clause 8.2.3). It is never an
+// acceptance test on receipt: RFC 3719 section 6 forbids that, so a
+// Circuit accepts an unpadded hello whatever its own mode.
+type PaddingMode uint8
+
+// The padding modes.
+const (
+	// PadAlways pads every hello, which is ISO 10589's behavior.
+	PadAlways PaddingMode = iota
+
+	// PadDuringAdjacencyFormation pads until the Circuit holds an
+	// adjacency in state Up, which RFC 3719 section 6 recommends.
+	PadDuringAdjacencyFormation
+
+	// PadNever sends unpadded hellos.
+	PadNever
+)
+
+// String returns the name of a PaddingMode.
+func (m PaddingMode) String() string {
+	switch m {
+	case PadAlways:
+		return "always"
+	case PadDuringAdjacencyFormation:
+		return "during adjacency formation"
+	case PadNever:
+		return "never"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(m))
+	}
+}
+
 // A CircuitConfig configures a Circuit. SystemID, AreaAddresses, Levels,
 // and Type are required and every other field has a default or is
 // optional. Configuration is immutable once the Circuit is built.
@@ -140,6 +174,10 @@ type CircuitConfig struct {
 	// IPv6 address, all link-local, which is what RFC 5308 section 3
 	// permits in a hello. A family with no addresses sends no TLV.
 	IPv4Addresses, IPv6Addresses []netip.Addr
+
+	// Padding says when the Circuit pads its hellos. The zero value is
+	// PadAlways.
+	Padding PaddingMode
 
 	// OnAdjacency, if set, is called on each adjacency state change:
 	// Initializing, Up, and Down. It is the signal a caller gates
@@ -236,6 +274,10 @@ func NewCircuit(t Transport, c CircuitConfig) (*Circuit, error) {
 		return nil, fmt.Errorf("isis: circuit type %d does not exist", uint8(c.Type))
 	}
 
+	if c.Padding > PadNever {
+		return nil, fmt.Errorf("isis: padding mode %d does not exist", uint8(c.Padding))
+	}
+
 	if c.HelloInterval == 0 {
 		c.HelloInterval = defaultHelloInterval
 	}
@@ -308,15 +350,12 @@ func (c *Circuit) buildHello() error {
 		return err
 	}
 
-	// ISO 10589 clause 8.2.3 pads every hello to the link's full PDU
-	// size, so an adjacency forms only over a link which carries one.
 	c.hello = &PointToPointHello{
 		Levels:         c.cfg.Levels,
 		SourceID:       c.cfg.SystemID,
 		HoldingTime:    c.holdingTime(),
 		LocalCircuitID: c.cfg.LocalCircuitID,
 		TLVs:           []TLV{areas, protocols},
-		PadTo:          c.t.MaxPDULen(),
 	}
 
 	if len(c.cfg.IPv4Addresses) > 0 {
@@ -351,7 +390,9 @@ func (c *Circuit) buildHello() error {
 	// The three way adjacency TLV is ten octets longer once it names a
 	// neighbor, so the proof encodes that form: the largest hello the
 	// Circuit can send. The neighbor fields are fixed width, so any
-	// nonzero neighbor is as long as a real one.
+	// nonzero neighbor is as long as a real one. Padding never lengthens
+	// a hello past the link's PDU size, so the proof holds whatever the
+	// padding mode.
 	b, err := c.appendPointToPointHello(nil, ThreeWayAdjacency{
 		State:                          ThreeWayUp,
 		ExtendedLocalCircuitID:         c.cfg.ExtendedLocalCircuitID,
@@ -788,7 +829,8 @@ func (c *Circuit) transmit(ctx context.Context, now time.Time) {
 }
 
 // appendPointToPointHello encodes the Circuit's hello onto b, with tw as
-// the three way adjacency TLV in its last slot.
+// the three way adjacency TLV in its last slot, padded to the link's PDU
+// size when the padding mode calls for it.
 func (c *Circuit) appendPointToPointHello(b []byte, tw ThreeWayAdjacency) ([]byte, error) {
 	threeWay, err := ThreeWayAdjacencyTLV(tw)
 	if err != nil {
@@ -796,6 +838,12 @@ func (c *Circuit) appendPointToPointHello(b []byte, tw ThreeWayAdjacency) ([]byt
 	}
 
 	c.hello.TLVs[len(c.hello.TLVs)-1] = threeWay
+
+	c.hello.PadTo = 0
+	if c.padding() {
+		c.hello.PadTo = c.t.MaxPDULen()
+	}
+
 	return c.hello.AppendBinary(b)
 }
 
@@ -832,6 +880,24 @@ func (c *Circuit) receivedThreeWayState(tw ThreeWayAdjacency) ThreeWayState {
 		return ThreeWayDown
 	default:
 		return tw.State
+	}
+}
+
+// padding reports whether the next hello is padded to the link's PDU
+// size. ISO 10589 clause 8.2.3 pads every hello, so an adjacency forms
+// only over a link which carries a full sized PDU: PadAlways does that.
+// PadDuringAdjacencyFormation pads only while the adjacency is not Up,
+// and PadNever never pads.
+func (c *Circuit) padding() bool {
+	switch c.cfg.Padding {
+	case PadAlways:
+		return true
+	case PadDuringAdjacencyFormation:
+		// The adjacency is read on every hello, so one which falls from Up
+		// or is deleted pads the next hello again with nothing to reset.
+		return c.adj == nil || c.adj.state != AdjacencyUp
+	default:
+		return false
 	}
 }
 

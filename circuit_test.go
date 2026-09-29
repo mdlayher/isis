@@ -76,6 +76,12 @@ func TestNewCircuitRejects(t *testing.T) {
 			err:  "isis: circuit type 9 does not exist",
 		},
 		{
+			name: "a padding mode which does not exist",
+			tr:   tr,
+			edit: func(c *isis.CircuitConfig) { c.Padding = isis.PadNever + 1 },
+			err:  "isis: padding mode 3 does not exist",
+		},
+		{
 			name: "a negative hello interval",
 			tr:   tr,
 			edit: func(c *isis.CircuitConfig) { c.HelloInterval = -1 * time.Second },
@@ -488,6 +494,223 @@ func TestCircuitShutdown(t *testing.T) {
 	})
 }
 
+// A Circuit padding every hello sends hellos of the link's full size and
+// accepts one of that size from its neighbor, as it must of FRR, which
+// pads to the interface MTU by default.
+func TestCircuitHelloPadding(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		tr, peer := memLink(snpaA, snpaB, linkPDULength)
+		cfg := circuitConfig(t, endA)
+		cfg.Padding = isis.PadAlways
+
+		a := newNode(t, tr, cfg)
+		defer a.stop(t)
+
+		if got := len(a.sentPDU(t)); got != linkPDULength {
+			t.Fatalf("unexpected hello length: want %d, got %d", linkPDULength, got)
+		}
+
+		tw := isis.ThreeWayAdjacency{
+			State:                  isis.ThreeWayDown,
+			ExtendedLocalCircuitID: endB.id,
+		}
+
+		h := &isis.PointToPointHello{
+			Levels:      isis.Level2Only,
+			SourceID:    endB.sys,
+			HoldingTime: holdingTime,
+			TLVs: []isis.TLV{
+				mustAreaAddressesTLV(t, []byte{0x49, 0x00, 0x01}),
+				mustProtocolsTLV(t),
+				mustThreeWayTLV(t, tw),
+			},
+			PadTo: linkPDULength,
+		}
+
+		b, err := h.AppendBinary(nil)
+		if err != nil {
+			t.Fatalf("failed to append hello: %v", err)
+		}
+
+		if len(b) != linkPDULength {
+			t.Fatalf("unexpected scripted hello length: want %d, got %d", linkPDULength, len(b))
+		}
+
+		if err := peer.WritePDU(isis.AllISs(), b); err != nil {
+			t.Fatalf("failed to write hello: %v", err)
+		}
+
+		a.wantAdjacency(t, isis.AdjacencyInitializing)
+	})
+}
+
+// RFC 3719 section 6: "The presence or absence of padding TLVs MUST NOT
+// be one of the acceptance tests applied to a received IIH." A Circuit
+// which pads its own hellos forms an adjacency from an unpadded one.
+func TestCircuitUnpaddedHelloAccepted(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		tr, peer := memLink(snpaA, snpaB, linkPDULength)
+
+		a := newNode(t, tr, circuitConfig(t, endA))
+		defer a.stop(t)
+
+		tw := isis.ThreeWayAdjacency{
+			State:                  isis.ThreeWayDown,
+			ExtendedLocalCircuitID: endB.id,
+		}
+
+		if err := peer.WritePDU(isis.AllISs(), scriptedHello(t, isis.Level2Only, tw)); err != nil {
+			t.Fatalf("failed to write hello: %v", err)
+		}
+
+		a.wantAdjacency(t, isis.AdjacencyInitializing)
+	})
+}
+
+// A Circuit padding during adjacency formation pads every hello it sends
+// before its adjacency reaches Up and none after, and pads again once the
+// neighbor stops and the adjacency leaves Up. The three way state each
+// hello advertises says which side of Up it was sent on.
+func TestCircuitPadsDuringAdjacencyFormation(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		cfg := circuitConfig(t, endA)
+		cfg.Padding = isis.PadDuringAdjacencyFormation
+
+		a, b := newPair(t, &cfg, nil)
+		defer a.stop(t)
+
+		a.waitAdjacency(t, isis.AdjacencyUp)
+		b.waitAdjacency(t, isis.AdjacencyUp)
+
+		// Reaching Up fires the hook at once but sends the first Up hello
+		// on the Circuit's next pass, so wait for both Circuits to go
+		// idle, which is after that hello is in the tap.
+		synctest.Wait()
+
+		want := []paddedHello{
+			{
+				State:  isis.ThreeWayDown,
+				Padded: true,
+			},
+			{
+				State:  isis.ThreeWayInitializing,
+				Padded: true,
+			},
+			{
+				State:  isis.ThreeWayUp,
+				Padded: false,
+			},
+		}
+
+		if d := diff(t, want, sentPadding(t, a.tapped())); d != "" {
+			t.Fatalf("unexpected hellos while forming (-want +got):\n%s", d)
+		}
+
+		// A later Up hello, sent at the hello interval rather than on a
+		// state change, is unpadded too.
+		time.Sleep(helloInterval)
+		synctest.Wait()
+
+		want = []paddedHello{{State: isis.ThreeWayUp}}
+		if d := diff(t, want, sentPadding(t, a.tapped())); d != "" {
+			t.Fatalf("unexpected hellos while Up (-want +got):\n%s", d)
+		}
+
+		// The neighbor's last hello advertises Down, which moves the
+		// adjacency from Up to Initializing and sends a hello at once.
+		b.stop(t)
+		a.wantAdjacency(t, isis.AdjacencyInitializing)
+		synctest.Wait()
+
+		want = []paddedHello{
+			{
+				State:  isis.ThreeWayInitializing,
+				Padded: true,
+			},
+		}
+
+		if d := diff(t, want, sentPadding(t, a.tapped())); d != "" {
+			t.Fatalf("unexpected hellos after leaving Up (-want +got):\n%s", d)
+		}
+	})
+}
+
+// A Circuit which never pads sends every hello shorter than the link's
+// PDU size, and its adjacency still reaches Up.
+func TestCircuitPadNever(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		cfg := circuitConfig(t, endA)
+		cfg.Padding = isis.PadNever
+
+		a, b := newPair(t, &cfg, nil)
+		defer a.stop(t)
+		defer b.stop(t)
+
+		a.waitAdjacency(t, isis.AdjacencyUp)
+		b.waitAdjacency(t, isis.AdjacencyUp)
+		synctest.Wait()
+
+		want := []paddedHello{
+			{State: isis.ThreeWayDown},
+			{State: isis.ThreeWayInitializing},
+			{State: isis.ThreeWayUp},
+		}
+
+		if d := diff(t, want, sentPadding(t, a.tapped())); d != "" {
+			t.Fatalf("unexpected hellos (-want +got):\n%s", d)
+		}
+	})
+}
+
+func TestPaddingModeString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		m    isis.PaddingMode
+		want string
+	}{
+		{
+			name: "always",
+			m:    isis.PadAlways,
+			want: "always",
+		},
+		{
+			name: "during adjacency formation",
+			m:    isis.PadDuringAdjacencyFormation,
+			want: "during adjacency formation",
+		},
+		{
+			name: "never",
+			m:    isis.PadNever,
+			want: "never",
+		},
+		{
+			name: "unknown",
+			m:    3,
+			want: "unknown(3)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.m.String(); got != tt.want {
+				t.Fatalf("unexpected string: want %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
 // helloTLVs builds the TLVs a hello from cfg carries, in the order a
 // Circuit sends them, less padding.
 func helloTLVs(t *testing.T, cfg isis.CircuitConfig) []isis.TLV {
@@ -530,4 +753,43 @@ func received(tes []tapEvent) []tapEvent {
 	return slices.DeleteFunc(tes, func(te tapEvent) bool {
 		return te.Event.Direction != isis.DirectionReceived
 	})
+}
+
+// A paddedHello is the three way state a sent hello advertised and
+// whether it was padded to the link's PDU size.
+type paddedHello struct {
+	State  isis.ThreeWayState
+	Padded bool
+}
+
+// sentPadding returns the three way state and padding of each hello in
+// tes which a node sent, with consecutive repeats collapsed so the result
+// is the progression rather than the cadence.
+func sentPadding(t *testing.T, tes []tapEvent) []paddedHello {
+	t.Helper()
+
+	var out []paddedHello
+	for _, te := range tes {
+		if te.Event.Direction != isis.DirectionSent {
+			continue
+		}
+
+		// A hello is either padded to the link's full size or shorter than
+		// it: there is no size in between.
+		n := len(te.Event.Raw)
+		if n > linkPDULength {
+			t.Fatalf("hello is %d octets, more than the link's %d", n, linkPDULength)
+		}
+
+		p := paddedHello{
+			State:  threeWayOf(t, te.Event.Raw).State,
+			Padded: n == linkPDULength,
+		}
+
+		if len(out) == 0 || out[len(out)-1] != p {
+			out = append(out, p)
+		}
+	}
+
+	return out
 }
