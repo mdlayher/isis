@@ -93,6 +93,13 @@ func (t PDUType) fixedHeaderLen() int {
 	}
 }
 
+// The offsets in a link state PDU of the two fields RFC 5304 section 2
+// zeroes before authenticating it, as laid out in ISO 10589 clause 9.8.
+const (
+	lspRemainingLifetimeOff = 10
+	lspChecksumOff          = 24
+)
+
 // pduLength returns the PDU length field of b, one PDU of type t whose
 // header has parsed, checked against its fixed header and the octets
 // received. The field sits after the source ID in a hello and straight

@@ -857,6 +857,10 @@ func FuzzTypedTLVs(f *testing.F) {
 	// An IPv4 mapped IPv6 address, which the parser refuses.
 	f.Add(netip.MustParseAddr("::ffff:192.0.2.1").AsSlice())
 
+	// An HMAC-MD5 authentication value: the type octet and a 16 octet
+	// digest.
+	f.Add(append([]byte{uint8(isis.AuthTypeHMACMD5)}, bytes.Repeat([]byte{0xa5}, 16)...))
+
 	f.Fuzz(func(t *testing.T, b []byte) {
 		// A longer value has no TLV to arrive in.
 		if len(b) > 255 {
@@ -905,6 +909,16 @@ func FuzzTypedTLVs(f *testing.F) {
 
 				return v
 			},
+		})
+
+		fuzzTypedTLV(t, b, typedTLV[isis.Authentication]{
+			Type:  isis.TLVAuthentication,
+			Parse: isis.TLV.Authentication,
+			Build: isis.AuthenticationTLV,
+
+			// Authentication.Value aliases the TLV it was parsed from, as
+			// its doc says, so only the re-encoding is checked.
+			Aliases: true,
 		})
 	})
 }
@@ -958,12 +972,16 @@ type typedTLV[T any] struct {
 	// Encoding returns what the constructor emits for the value b parses
 	// to. Nil means b itself: the value has one encoding.
 	Encoding func(b []byte) []byte
+
+	// Aliases reports that the parsed value aliases its input by design,
+	// so fuzzTypedTLV checks the re-encoding alone.
+	Aliases bool
 }
 
 // fuzzTypedTLV checks one typed accessor against the TLV of type tt.Type
 // whose value is b. A value which parses re-encodes through the
-// constructor to exactly its one encoding, and the parsed value shares no
-// memory with b.
+// constructor to exactly its one encoding, and unless tt.Aliases is set,
+// the parsed value shares no memory with b.
 func fuzzTypedTLV[T any](t *testing.T, b []byte, tt typedTLV[T]) {
 	t.Helper()
 
@@ -993,6 +1011,10 @@ func fuzzTypedTLV[T any](t *testing.T, b []byte, tt typedTLV[T]) {
 	// and diff only reports.
 	if !bytes.Equal(enc, tlv.Value) {
 		t.Fatalf("unexpected %s re-encoding (-want +got):\n%s", tt.Type, diff(t, enc, tlv.Value))
+	}
+
+	if tt.Aliases {
+		return
 	}
 
 	// The encoding stands in for the parsed value: the constructors
