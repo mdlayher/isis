@@ -394,3 +394,27 @@ func mustThreeWayTLV(t *testing.T, a isis.ThreeWayAdjacency) isis.TLV {
 
 	return tlv
 }
+
+// newAuthPair builds two nodes as newPair does, each authenticating with
+// HMAC-MD5 under its key when the key is non-nil.
+func newAuthPair(t *testing.T, keyA, keyB []byte) (a, b *node) {
+	t.Helper()
+
+	cfgA := circuitConfig(t, endA)
+	if keyA != nil {
+		cfgA.Auth = &isis.AuthConfig{
+			Type: isis.AuthTypeHMACMD5,
+			Key:  keyA,
+		}
+	}
+
+	cfgB := circuitConfig(t, endB)
+	if keyB != nil {
+		cfgB.Auth = &isis.AuthConfig{
+			Type: isis.AuthTypeHMACMD5,
+			Key:  keyB,
+		}
+	}
+
+	return newPair(t, &cfgA, &cfgB)
+}

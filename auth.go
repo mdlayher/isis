@@ -123,8 +123,8 @@ func (a Authentication) validate() error {
 	return nil
 }
 
-// An AuthConfig is the authentication type and shared key which sign a
-// PDU before it is sent and verify one which is received.
+// An AuthConfig is the authentication type and shared key with which a
+// Circuit signs the PDUs it sends and verifies those it receives.
 //
 // HMAC-MD5 guards against misconfiguration and casual injection, not a
 // determined attacker: RFC 5304 section 5 describes its limits.
@@ -135,6 +135,20 @@ type AuthConfig struct {
 
 	// Key is the shared secret. It must not be empty.
 	Key []byte
+}
+
+// validate checks a against the one type this package implements and
+// requires a key.
+func (a *AuthConfig) validate() error {
+	if a.Type != AuthTypeHMACMD5 {
+		return fmt.Errorf("isis: authentication type %s is not implemented", a.Type)
+	}
+
+	if len(a.Key) == 0 {
+		return errors.New("isis: authentication key must not be empty")
+	}
+
+	return nil
 }
 
 // placeholderTLV is the authentication TLV an encoder emits before

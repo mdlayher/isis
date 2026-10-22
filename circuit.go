@@ -179,6 +179,12 @@ type CircuitConfig struct {
 	// PadAlways.
 	Padding PaddingMode
 
+	// Auth, if set, authenticates the Circuit's hellos: every hello sent
+	// carries the authentication TLV, and a received PDU which does not
+	// verify is dropped. A nil Auth sends no authentication TLV and
+	// accepts hellos whether or not they carry one.
+	Auth *AuthConfig
+
 	// OnAdjacency, if set, is called on each adjacency state change:
 	// Initializing, Up, and Down. It is the signal a caller gates
 	// forwarding and liveness checks such as a BFD session on, and it
@@ -199,10 +205,11 @@ type CircuitConfig struct {
 	// See OnAdjacency for the hook contract.
 	OnPDU func(c *Circuit, e PDUEvent)
 
-	// Logger, if set, records the Circuit starting and adjacency state
-	// changes at Info, a hello which cannot be built at Error, and dropped
-	// PDUs, failed writes, and a Transport which fails to close at Debug.
-	// nil discards everything.
+	// Logger, if set, records the Circuit starting, adjacency state
+	// changes, and the start and end of a run of authentication failures
+	// at Info, a hello which cannot be built at Error, and dropped PDUs,
+	// failed writes, and a Transport which fails to close at Debug. nil
+	// discards everything.
 	Logger *slog.Logger
 }
 
@@ -234,6 +241,11 @@ type Circuit struct {
 
 	// wb is the reused transmit marshal buffer.
 	wb []byte
+
+	// authFailing is set from the first received PDU which fails
+	// authentication until the next which verifies, so the start and the
+	// end of a run of failures each log once.
+	authFailing bool
 }
 
 // NewCircuit validates the configuration and produces a Circuit over t.
@@ -278,6 +290,12 @@ func NewCircuit(t Transport, c CircuitConfig) (*Circuit, error) {
 		return nil, fmt.Errorf("isis: padding mode %d does not exist", uint8(c.Padding))
 	}
 
+	if c.Auth != nil {
+		if err := c.Auth.validate(); err != nil {
+			return nil, err
+		}
+	}
+
 	if c.HelloInterval == 0 {
 		c.HelloInterval = defaultHelloInterval
 	}
@@ -302,12 +320,18 @@ func NewCircuit(t Transport, c CircuitConfig) (*Circuit, error) {
 		c.ExtendedLocalCircuitID = rand.Uint32()
 	}
 
-	// Configuration is immutable once built, so the slices are the
-	// Circuit's own rather than the caller's.
+	// Configuration is immutable once built, so the slices and the key
+	// are the Circuit's own rather than the caller's.
 	c.AreaAddresses = slices.Clone(c.AreaAddresses)
 	c.Protocols = slices.Clone(c.Protocols)
 	c.IPv4Addresses = slices.Clone(c.IPv4Addresses)
 	c.IPv6Addresses = slices.Clone(c.IPv6Addresses)
+	if c.Auth != nil {
+		c.Auth = &AuthConfig{
+			Type: c.Auth.Type,
+			Key:  bytes.Clone(c.Auth.Key),
+		}
+	}
 
 	if slices.Contains(c.Protocols, NLPIDIPv4) && len(c.IPv4Addresses) == 0 {
 		return nil, errors.New("isis: IPv4 is advertised but no IPv4 address is set")
@@ -355,8 +379,20 @@ func (c *Circuit) buildHello() error {
 		SourceID:       c.cfg.SystemID,
 		HoldingTime:    c.holdingTime(),
 		LocalCircuitID: c.cfg.LocalCircuitID,
-		TLVs:           []TLV{areas, protocols},
 	}
+
+	// The authentication TLV leads, and its digest is zero until the whole
+	// hello, padding included, is encoded. FRR puts it first as well.
+	if c.cfg.Auth != nil {
+		auth, err := c.cfg.Auth.placeholderTLV()
+		if err != nil {
+			return err
+		}
+
+		c.hello.TLVs = append(c.hello.TLVs, auth)
+	}
+
+	c.hello.TLVs = append(c.hello.TLVs, areas, protocols)
 
 	if len(c.cfg.IPv4Addresses) > 0 {
 		v4, err := IPv4InterfaceAddressesTLV(c.cfg.IPv4Addresses)
@@ -543,8 +579,9 @@ func (c *Circuit) read(ctx context.Context, pduC chan<- receivedPDU) error {
 // drive any number of Circuits through them: Run drives one.
 
 // receive reports one PDU to the tap and applies a point to point hello
-// to the Circuit's adjacency at time now. Every other PDU is reported and
-// dropped.
+// to the Circuit's adjacency at time now. A PDU which fails
+// authentication, when the Circuit authenticates, is reported and
+// dropped, as is every PDU other than a point to point hello.
 func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 	hdr, err := ParseHeader(p.pdu)
 	c.tap(PDUEvent{
@@ -563,11 +600,45 @@ func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 		return
 	}
 
+	// Authentication applies to every PDU type, so it comes before the
+	// dispatch on one.
+	if c.cfg.Auth != nil {
+		if err := c.cfg.Auth.verify(p.pdu); err != nil {
+			c.authFailed(ctx, p.src, err)
+			return
+		}
+
+		c.authPassed(p.src)
+	}
+
 	if hdr.Type != PDUPointToPointHello {
 		return
 	}
 
 	c.receiveHello(ctx, now, p)
+}
+
+// authFailed records a received PDU from src which failed authentication
+// with err. The first failure of a run logs at Info and the rest at Debug.
+func (c *Circuit) authFailed(ctx context.Context, src SNPA, err error) {
+	if !c.authFailing {
+		c.authFailing = true
+		c.log.Info("PDU authentication failing", "src", src, "err", err)
+		return
+	}
+
+	if c.log.Enabled(ctx, slog.LevelDebug) {
+		c.log.Debug("dropped PDU: authentication failed", "src", src, "err", err)
+	}
+}
+
+// authPassed records a received PDU from src which verified, logging the
+// end of a run of failures.
+func (c *Circuit) authPassed(src SNPA) {
+	if c.authFailing {
+		c.authFailing = false
+		c.log.Info("PDU authentication recovered", "src", src)
+	}
 }
 
 // receiveHello applies one received point to point hello to the Circuit's
@@ -830,7 +901,8 @@ func (c *Circuit) transmit(ctx context.Context, now time.Time) {
 
 // appendPointToPointHello encodes the Circuit's hello onto b, with tw as
 // the three way adjacency TLV in its last slot, padded to the link's PDU
-// size when the padding mode calls for it.
+// size when the padding mode calls for it, and signed when the Circuit
+// authenticates.
 func (c *Circuit) appendPointToPointHello(b []byte, tw ThreeWayAdjacency) ([]byte, error) {
 	threeWay, err := ThreeWayAdjacencyTLV(tw)
 	if err != nil {
@@ -844,7 +916,20 @@ func (c *Circuit) appendPointToPointHello(b []byte, tw ThreeWayAdjacency) ([]byt
 		c.hello.PadTo = c.t.MaxPDULen()
 	}
 
-	return c.hello.AppendBinary(b)
+	start := len(b)
+	b, err = c.hello.AppendBinary(b)
+	if err != nil {
+		return nil, err
+	}
+
+	// RFC 5304 section 2 signs a hello after it is padded.
+	if c.cfg.Auth != nil {
+		if err := c.cfg.Auth.sign(b[start:]); err != nil {
+			return nil, err
+		}
+	}
+
+	return b, nil
 }
 
 // threeWayAdjacency is the three way adjacency TLV's value for the next

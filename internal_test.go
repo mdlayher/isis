@@ -400,6 +400,65 @@ func Test_hmacMD5Rejects(t *testing.T) {
 	}
 }
 
+func Fuzz_hmacMD5(f *testing.F) {
+	auth := &AuthConfig{
+		Type: AuthTypeHMACMD5,
+		Key:  []byte(frrMD5Key),
+	}
+
+	wrong := &AuthConfig{
+		Type: AuthTypeHMACMD5,
+		Key:  []byte("hunter3"),
+	}
+
+	lsp := lspWithAuth(f, auth)
+	if err := auth.sign(lsp); err != nil {
+		f.Fatalf("failed to sign LSP: %v", err)
+	}
+
+	f.Add(frrMD5Hello(f))
+	f.Add(lsp)
+
+	f.Fuzz(func(t *testing.T, b []byte) {
+		in := bytes.Clone(b)
+
+		sum, err := hmacMD5(b, auth.Key)
+		if d := cmp.Diff(in, b); d != "" {
+			t.Fatalf("hmacMD5 changed the PDU (-want +got):\n%s", d)
+		}
+
+		if err != nil {
+			return
+		}
+
+		if err := auth.sign(b); err != nil {
+			t.Fatalf("failed to sign a PDU hmacMD5 accepted: %v", err)
+		}
+
+		// Signing writes the digest and nothing else.
+		want := bytes.Clone(in)
+		copy(want[sum.off:sum.off+hmacMD5Len], sum.mac[:])
+		if d := cmp.Diff(want, b); d != "" {
+			t.Fatalf("sign changed more than the digest (-want +got):\n%s", d)
+		}
+
+		if err := auth.verify(b); err != nil {
+			t.Fatalf("failed to verify a PDU just signed: %v", err)
+		}
+
+		const errVerify = "isis: HMAC-MD5 digest does not verify"
+
+		err = wrong.verify(b)
+		if err == nil {
+			t.Fatal("PDU verified with the wrong key")
+		}
+
+		if got := err.Error(); got != errVerify {
+			t.Fatalf("unexpected error with the wrong key: want %q, got %q", errVerify, got)
+		}
+	})
+}
+
 // pad returns b extended with zero octets to n octets.
 func pad(b []byte, n int) []byte {
 	return append(b, make([]byte, n-len(b))...)
@@ -425,7 +484,7 @@ const frrMD5Key = "hunter2"
 // link's PDU size. Its first TLV is the HMAC-MD5 authentication TLV, then
 // come protocols supported, area addresses, three way adjacency, IPv4,
 // IPv6, and IPv6 global interface addresses, and six padding TLVs.
-func frrMD5Hello(t *testing.T) []byte {
+func frrMD5Hello(t testing.TB) []byte {
 	t.Helper()
 
 	s, err := os.ReadFile("testdata/frr-p2p-hello-md5-hunter2.hex")
@@ -443,7 +502,7 @@ func frrMD5Hello(t *testing.T) []byte {
 
 // lspWithAuth returns a Level 2 LSP from system 0000.0000.0001 carrying
 // only auth's placeholder authentication TLV, ready for sign.
-func lspWithAuth(t *testing.T, auth *AuthConfig) []byte {
+func lspWithAuth(t testing.TB, auth *AuthConfig) []byte {
 	t.Helper()
 
 	b, err := Header{Type: PDUL2LinkState}.AppendBinary(nil)

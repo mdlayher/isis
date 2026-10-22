@@ -19,7 +19,10 @@ it:
   sending hellos and reporting every PDU in both directions to
   `CircuitConfig.OnPDU`. It forms one adjacency with its neighbor through
   the [RFC 5303](https://www.rfc-editor.org/rfc/rfc5303) three way handshake
-  and reports its state changes to `CircuitConfig.OnAdjacency`.
+  and reports its state changes to `CircuitConfig.OnAdjacency`. With
+  `CircuitConfig.Auth` set, it signs its hellos and verifies every PDU it
+  receives with the [RFC 5304](https://www.rfc-editor.org/rfc/rfc5304)
+  HMAC-MD5 authentication TLV.
 
 ## Scope
 
@@ -40,6 +43,7 @@ The package is tested against the standards and against itself:
 - Codec tests encode and parse a hello assembled octet by octet from
   ISO 10589 and the RFCs defining its TLVs, requiring a byte-for-byte round
   trip.
-- Fuzz targets cover hello parsing, the TLV walk, and the typed TLV parsers.
+- Fuzz targets cover hello parsing, the TLV walk, the typed TLV parsers, and
+  the HMAC-MD5 digest.
 - `Transport` conformance tests run against an in-memory link, and the
   Ethernet packet filter runs in a software BPF machine.

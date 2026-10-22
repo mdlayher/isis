@@ -82,6 +82,25 @@ func TestNewCircuitRejects(t *testing.T) {
 			err:  "isis: padding mode 3 does not exist",
 		},
 		{
+			name: "an authentication type which is not implemented",
+			tr:   tr,
+			edit: func(c *isis.CircuitConfig) {
+				c.Auth = &isis.AuthConfig{
+					Type: isis.AuthTypeCleartext,
+					Key:  []byte("secret"),
+				}
+			},
+			err: "isis: authentication type cleartext is not implemented",
+		},
+		{
+			name: "an empty authentication key",
+			tr:   tr,
+			edit: func(c *isis.CircuitConfig) {
+				c.Auth = &isis.AuthConfig{Type: isis.AuthTypeHMACMD5}
+			},
+			err: "isis: authentication key must not be empty",
+		},
+		{
 			name: "a negative hello interval",
 			tr:   tr,
 			edit: func(c *isis.CircuitConfig) { c.HelloInterval = -1 * time.Second },
@@ -667,6 +686,83 @@ func TestCircuitPadNever(t *testing.T) {
 		if d := diff(t, want, sentPadding(t, a.tapped())); d != "" {
 			t.Fatalf("unexpected hellos (-want +got):\n%s", d)
 		}
+	})
+}
+
+// Two Circuits sharing a key form an adjacency, which proves each verifies
+// the other's digest, and every hello they send leads with an HMAC-MD5
+// authentication TLV whose digest has been filled in.
+func TestCircuitAuthenticatedHellos(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		a, b := newAuthPair(t, []byte("secret"), []byte("secret"))
+		defer a.stop(t)
+		defer b.stop(t)
+
+		a.waitAdjacency(t, isis.AdjacencyUp)
+		b.waitAdjacency(t, isis.AdjacencyUp)
+
+		h, err := isis.ParsePointToPointHello(a.sentPDU(t))
+		if err != nil {
+			t.Fatalf("failed to parse hello: %v", err)
+		}
+
+		// TLV.Authentication already requires an HMAC-MD5 value to be 16
+		// octets long.
+		auth, err := h.TLVs[0].Authentication()
+		if err != nil {
+			t.Fatalf("failed to parse the first TLV as authentication: %v", err)
+		}
+
+		if auth.Type != isis.AuthTypeHMACMD5 {
+			t.Fatalf("unexpected authentication type: want %q, got %q", isis.AuthTypeHMACMD5, auth.Type)
+		}
+
+		if bytes.Equal(auth.Value, make([]byte, 16)) {
+			t.Fatal("hello carried the placeholder's zero digest")
+		}
+	})
+}
+
+// Two Circuits with different keys each drop every hello the other sends,
+// so neither ever reports an adjacency.
+func TestCircuitAuthKeyMismatch(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		a, b := newAuthPair(t, []byte("secret"), []byte("other"))
+		defer a.stop(t)
+		defer b.stop(t)
+
+		time.Sleep(10 * helloInterval)
+		synctest.Wait()
+
+		a.wantNoAdjacency(t)
+		b.wantNoAdjacency(t)
+	})
+}
+
+// When only a authenticates, the adjacency stalls half formed. b accepts
+// a's hellos, since a Circuit without Auth ignores the authentication
+// TLV, and reaches Initializing. a drops b's hellos, which carry no
+// authentication TLV, so it never reports an adjacency. b hears a, which
+// never echoes b back, so b never passes Initializing.
+func TestCircuitAuthOnOneEndOnly(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		a, b := newAuthPair(t, []byte("secret"), nil)
+		defer a.stop(t)
+		defer b.stop(t)
+
+		b.wantAdjacency(t, isis.AdjacencyInitializing)
+
+		time.Sleep(10 * helloInterval)
+		synctest.Wait()
+
+		a.wantNoAdjacency(t)
+		b.wantNoAdjacency(t)
 	})
 }
 
