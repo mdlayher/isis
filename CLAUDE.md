@@ -165,6 +165,11 @@ Code comments:
   decision's rationale, carry the one-sentence version inline.
 - Plain prose: short sentences, no em dashes. Prefer separate sentences, a
   colon, or "such as X or Y" over parenthetical asides.
+- A glossary term is capitalized only when it names an exported
+  identifier, such as Circuit or Transport, so a capitalized word always
+  points at a type. Every other term, such as adjacency, neighbor, link,
+  or instance, is lowercase. CONTEXT.md follows the same rule in its
+  prose.
 
 Markdown documents:
 
