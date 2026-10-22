@@ -42,8 +42,9 @@ func (d Direction) String() string {
 // A PDUEvent reports one PDU crossing a Circuit, for audit and
 // diagnostics. Every PDU a Circuit sends or receives is reported once,
 // whatever its type, including a received PDU whose common header fails
-// validation and a sent PDU whose write failed. A hello which could not
-// be built never reaches the link and is not reported.
+// validation or which fails authentication, and a sent PDU whose write
+// failed. A hello which could not be built never reaches the link and is
+// not reported.
 type PDUEvent struct {
 	// Direction is which way the PDU crossed.
 	Direction Direction
@@ -61,10 +62,11 @@ type PDUEvent struct {
 	Raw []byte
 
 	// Err is nil for a PDU which was received or written cleanly. On a
-	// received event it is otherwise the error its common header failed
-	// validation with, and the Circuit drops the PDU. On a sent event it
-	// is the Transport's write error, and the PDU may not have reached
-	// the link.
+	// received event it is otherwise why the Circuit drops the PDU: the
+	// error its common header failed validation with, or an error
+	// wrapping ErrAuthentication for a PDU which failed authentication.
+	// On a sent event it is the Transport's write error, and the PDU may
+	// not have reached the link.
 	Err error
 }
 
@@ -181,8 +183,9 @@ type CircuitConfig struct {
 
 	// Auth, if set, authenticates the Circuit's hellos: every hello sent
 	// carries the authentication TLV, and a received PDU which does not
-	// verify is dropped. A nil Auth sends no authentication TLV and
-	// accepts hellos whether or not they carry one.
+	// verify is reported to OnPDU with an error wrapping
+	// ErrAuthentication and dropped. A nil Auth sends no authentication
+	// TLV and accepts hellos whether or not they carry one.
 	Auth *AuthConfig
 
 	// OnAdjacency, if set, is called on each adjacency state change:
@@ -206,10 +209,10 @@ type CircuitConfig struct {
 	OnPDU func(c *Circuit, e PDUEvent)
 
 	// Logger, if set, records the Circuit starting, adjacency state
-	// changes, and the start and end of a run of authentication failures
-	// at Info, a hello which cannot be built at Error, and dropped PDUs,
-	// failed writes, and a Transport which fails to close at Debug. nil
-	// discards everything.
+	// changes, and the end of a run of authentication failures at Info,
+	// the start of such a run at Warn, a hello which cannot be built at
+	// Error, and dropped PDUs, failed writes, and a Transport which fails
+	// to close at Debug. nil discards everything.
 	Logger *slog.Logger
 }
 
@@ -584,6 +587,21 @@ func (c *Circuit) read(ctx context.Context, pduC chan<- receivedPDU) error {
 // dropped, as is every PDU other than a point to point hello.
 func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 	hdr, err := ParseHeader(p.pdu)
+	switch {
+	case err != nil:
+		if c.log.Enabled(ctx, slog.LevelDebug) {
+			c.log.Debug("dropped PDU", "src", p.src, "err", err)
+		}
+	case c.cfg.Auth != nil:
+		// Authentication applies to every PDU type, so it comes before the
+		// dispatch on one, and the tap reports a PDU which fails it.
+		if err = c.cfg.Auth.verify(p.pdu); err != nil {
+			c.authFailed(ctx, p.src, err)
+		} else {
+			c.authPassed(p.src)
+		}
+	}
+
 	c.tap(PDUEvent{
 		Direction: DirectionReceived,
 		SNPA:      p.src,
@@ -593,22 +611,7 @@ func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 	})
 
 	if err != nil {
-		if c.log.Enabled(ctx, slog.LevelDebug) {
-			c.log.Debug("dropped PDU", "src", p.src, "err", err)
-		}
-
 		return
-	}
-
-	// Authentication applies to every PDU type, so it comes before the
-	// dispatch on one.
-	if c.cfg.Auth != nil {
-		if err := c.cfg.Auth.verify(p.pdu); err != nil {
-			c.authFailed(ctx, p.src, err)
-			return
-		}
-
-		c.authPassed(p.src)
 	}
 
 	if hdr.Type != PDUPointToPointHello {
@@ -619,11 +622,12 @@ func (c *Circuit) receive(ctx context.Context, now time.Time, p receivedPDU) {
 }
 
 // authFailed records a received PDU from src which failed authentication
-// with err. The first failure of a run logs at Info and the rest at Debug.
+// with err. The first failure of a run logs at Warn, since it is almost
+// always a misconfiguration an operator must fix, and the rest at Debug.
 func (c *Circuit) authFailed(ctx context.Context, src SNPA, err error) {
 	if !c.authFailing {
 		c.authFailing = true
-		c.log.Info("PDU authentication failing", "src", src, "err", err)
+		c.log.Warn("PDU authentication failing", "src", src, "err", err)
 		return
 	}
 

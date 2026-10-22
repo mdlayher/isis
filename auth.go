@@ -123,6 +123,13 @@ func (a Authentication) validate() error {
 	return nil
 }
 
+// ErrAuthentication reports a received PDU which failed authentication:
+// it carries no authentication TLV, one this package does not verify, or
+// a digest which does not match the key. A Circuit reports such a PDU to
+// CircuitConfig.OnPDU with an error wrapping ErrAuthentication, whose
+// text is the reason the PDU failed.
+var ErrAuthentication = errors.New("isis: authentication failed")
+
 // An AuthConfig is the authentication type and shared key with which a
 // Circuit signs the PDUs it sends and verifies those it receives.
 //
@@ -173,21 +180,31 @@ func (a *AuthConfig) sign(b []byte) error {
 	return nil
 }
 
-// verify returns an error unless b, one received PDU, carries exactly one
-// HMAC-MD5 authentication TLV whose digest matches Key. It leaves b as it
-// found it.
+// verify returns an error wrapping ErrAuthentication unless b, one
+// received PDU, carries exactly one HMAC-MD5 authentication TLV whose
+// digest matches Key. It leaves b as it found it.
 func (a *AuthConfig) verify(b []byte) error {
 	sum, err := hmacMD5(b, a.Key)
 	if err != nil {
-		return err
+		return authError{err}
 	}
 
 	if !hmac.Equal(sum.mac[:], b[sum.off:sum.off+hmacMD5Len]) {
-		return errors.New("isis: HMAC-MD5 digest does not verify")
+		return authError{errors.New("isis: HMAC-MD5 digest does not verify")}
 	}
 
 	return nil
 }
+
+// An authError is a failure of verify. Its text is its cause's alone, so
+// the reason reads without a second prefix, and it wraps both the cause
+// and ErrAuthentication.
+type authError struct {
+	err error
+}
+
+func (e authError) Error() string   { return e.err.Error() }
+func (e authError) Unwrap() []error { return []error{ErrAuthentication, e.err} }
 
 // An hmacMD5Sum is the HMAC-MD5 of one PDU and the offset in it of the
 // digest the sum belongs at.

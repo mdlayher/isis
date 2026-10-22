@@ -766,6 +766,67 @@ func TestCircuitAuthOnOneEndOnly(t *testing.T) {
 	})
 }
 
+// A PDU which fails authentication is reported through the tap with its
+// header and an error wrapping ErrAuthentication, which tells it apart
+// from a PDU whose header failed, and then dropped: here, a neighbor which
+// does not authenticate sends a hello with no authentication TLV.
+func TestCircuitTapsAuthenticationFailure(t *testing.T) {
+	t.Parallel()
+
+	synctest.Test(t, func(t *testing.T) {
+		tr, peer := memLink(snpaA, snpaB, linkPDULength)
+		cfg := circuitConfig(t, endA)
+		cfg.Auth = &isis.AuthConfig{
+			Type: isis.AuthTypeHMACMD5,
+			Key:  []byte("secret"),
+		}
+
+		a := newNode(t, tr, cfg)
+		defer a.stop(t)
+
+		// Once the Circuit is idle its first hello is in the tap, and
+		// discarding it leaves the tap to what follows.
+		synctest.Wait()
+		a.drainTap()
+
+		pdu := scriptedHello(t, isis.Level2Only, isis.ThreeWayAdjacency{
+			State:                  isis.ThreeWayDown,
+			ExtendedLocalCircuitID: endB.id,
+		})
+
+		if err := peer.WritePDU(isis.AllISs(), pdu); err != nil {
+			t.Fatalf("failed to write PDU: %v", err)
+		}
+
+		synctest.Wait()
+
+		want := []tapEvent{{
+			Circuit: a.c,
+			Event: isis.PDUEvent{
+				Direction: isis.DirectionReceived,
+				SNPA:      snpaB,
+				Header: isis.Header{
+					Type:            isis.PDUPointToPointHello,
+					LengthIndicator: 20,
+				},
+				Raw: pdu,
+				Err: errors.New("isis: PDU carries no authentication TLV"),
+			},
+		}}
+
+		tes := received(a.tapped())
+		if d := diff(t, want, tes); d != "" {
+			t.Fatalf("unexpected tap events (-want +got):\n%s", d)
+		}
+
+		if err := tes[0].Event.Err; !errors.Is(err, isis.ErrAuthentication) {
+			t.Fatalf("error does not wrap %v: %v", isis.ErrAuthentication, err)
+		}
+
+		a.wantNoAdjacency(t)
+	})
+}
+
 func TestPaddingModeString(t *testing.T) {
 	t.Parallel()
 

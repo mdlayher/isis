@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -396,6 +397,10 @@ func Test_hmacMD5Rejects(t *testing.T) {
 			if got := err.Error(); got != tt.err {
 				t.Fatalf("unexpected verify error: want %q, got %q", tt.err, got)
 			}
+
+			if !errors.Is(err, ErrAuthentication) {
+				t.Fatalf("verify error does not wrap %v: %v", ErrAuthentication, err)
+			}
 		})
 	}
 }
@@ -455,6 +460,10 @@ func Fuzz_hmacMD5(f *testing.F) {
 
 		if got := err.Error(); got != errVerify {
 			t.Fatalf("unexpected error with the wrong key: want %q, got %q", errVerify, got)
+		}
+
+		if !errors.Is(err, ErrAuthentication) {
+			t.Fatalf("error with the wrong key does not wrap %v: %v", ErrAuthentication, err)
 		}
 	})
 }
