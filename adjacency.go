@@ -55,6 +55,10 @@ const (
 	// DownNoLevelInCommon reports that a hello left the two systems no
 	// level in common (ISO 10589 clause 8.2.4.2).
 	DownNoLevelInCommon
+
+	// DownNeighborUnusable reports that the caller's liveness check found
+	// the neighbor unusable, through Circuit.SetUsable.
+	DownNeighborUnusable
 )
 
 // String returns a description of a DownReason.
@@ -70,6 +74,8 @@ func (r DownReason) String() string {
 		return "neighbor system ID changed"
 	case DownNoLevelInCommon:
 		return "no level in common"
+	case DownNeighborUnusable:
+		return "neighbor unusable"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))
 	}

@@ -19,7 +19,9 @@
 //     neighbor through the RFC 5303 three way handshake and reports its
 //     state changes to [CircuitConfig.OnAdjacency]. With
 //     [CircuitConfig.Auth] set, it signs its hellos and verifies every PDU
-//     it receives with the RFC 5304 HMAC-MD5 authentication TLV.
+//     it receives with the RFC 5304 HMAC-MD5 authentication TLV. A
+//     caller's liveness check reports through [Circuit.SetUsable], and an
+//     unusable neighbor takes the adjacency Down.
 //
 // This package has no daemon and computes no routes on its own. A caller
 // owns the forwarding table, liveness, and policy, and gates them on the

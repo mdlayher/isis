@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net/netip"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -216,19 +217,36 @@ type CircuitConfig struct {
 	Logger *slog.Logger
 }
 
+// A usableReport is one SetUsable call waiting for the goroutine running
+// Run.
+type usableReport struct {
+	neighbor SystemID
+	usable   bool
+}
+
 // A Circuit is one system's attachment to a single link: it sends that
 // link's hellos over its Transport, forms one adjacency with its neighbor
 // and reports its state changes to CircuitConfig.OnAdjacency, and reports
 // every PDU in both directions to CircuitConfig.OnPDU. NewCircuit builds
 // one and Run runs it.
 //
-// Every field is owned by the goroutine running Run, so a Circuit must
-// not be touched from a hook beyond comparing its identity.
+// The fields SetUsable reaches are guarded for any goroutine, a hook
+// included. Every other field is owned by the goroutine running Run, so a
+// hook touches a Circuit only through SetUsable or by comparing its
+// identity.
 type Circuit struct {
 	t       Transport
 	cfg     CircuitConfig
 	log     *slog.Logger
 	started atomic.Bool
+
+	// usable holds SetUsable reports until the goroutine running Run
+	// drains them. usableMu guards it, because SetUsable is called from
+	// any goroutine. usableC, with capacity one, wakes Run, and one
+	// pending wakeup drains every report queued before it.
+	usableMu sync.Mutex
+	usable   []usableReport
+	usableC  chan struct{}
 
 	// helloAt is when the next hello is due.
 	helloAt time.Time
@@ -350,9 +368,10 @@ func NewCircuit(t Transport, c CircuitConfig) (*Circuit, error) {
 	}
 
 	circuit := &Circuit{
-		t:   t,
-		cfg: c,
-		log: log.With("system_id", c.SystemID.String(), "circuit", c.LocalCircuitID),
+		t:       t,
+		cfg:     c,
+		log:     log.With("system_id", c.SystemID.String(), "circuit", c.LocalCircuitID),
+		usableC: make(chan struct{}, 1),
 	}
 
 	// Build and prove the hello the Circuit sends, so a bad configuration
@@ -515,6 +534,8 @@ func (c *Circuit) Run(ctx context.Context) error {
 			return eg.Wait()
 		case <-t.C:
 			// Next tick.
+		case <-c.usableC:
+			// A liveness report, which applyUsable drains below.
 		case p = <-pduC:
 			received = true
 		}
@@ -524,12 +545,47 @@ func (c *Circuit) Run(ctx context.Context) error {
 		// name the same instant. Whatever woke the Circuit, anything due
 		// runs before it sleeps again.
 		now = time.Now()
+
+		// Liveness reports apply before the PDU, so each judges the
+		// adjacency its caller saw rather than one the PDU has just
+		// brought Up.
+		c.applyUsable(now)
 		if received {
 			c.receive(ctx, now, p)
 		}
 
 		c.runDue(ctx, now)
 		t.Reset(c.nextDeadline().Sub(now))
+	}
+}
+
+// SetUsable reports whether the caller's liveness check, such as a BFD
+// session over the link, finds neighbor usable on this Circuit.
+//
+// Reporting a neighbor unusable takes the adjacency with it Down if that
+// adjacency is Up: an adjacency forms without waiting on liveness, and
+// only a later failure tears it down. The neighbor's next hellos may bring
+// the adjacency back through the three way handshake, so a caller which
+// starts its liveness check on Up sees a fresh Up to start on. Reporting a
+// neighbor usable changes nothing, since usable is the steady state, and a
+// report naming a neighbor the Circuit holds no Up adjacency with is
+// ignored.
+//
+// SetUsable never blocks and is safe from any goroutine, a hook included.
+// The report applies on the goroutine running Run when it next wakes; a
+// report made after Run has returned is never applied.
+func (c *Circuit) SetUsable(neighbor SystemID, usable bool) {
+	c.usableMu.Lock()
+	c.usable = append(c.usable, usableReport{
+		neighbor: neighbor,
+		usable:   usable,
+	})
+	c.usableMu.Unlock()
+
+	select {
+	case c.usableC <- struct{}{}:
+	default:
+		// A wakeup is already pending, and it drains this report too.
 	}
 }
 
@@ -577,9 +633,26 @@ func (c *Circuit) read(ctx context.Context, pduC chan<- receivedPDU) error {
 	}
 }
 
-// The core of a Circuit is receive, runDue, nextDeadline, and shutdown.
-// None of them starts a goroutine or waits on a read, so one goroutine can
-// drive any number of Circuits through them: Run drives one.
+// The core of a Circuit is applyUsable, receive, runDue, nextDeadline, and
+// shutdown. None of them starts a goroutine or waits on a read, so one
+// goroutine can drive any number of Circuits through them: Run drives one.
+
+// applyUsable drains the reports SetUsable queued and applies each in
+// order at time now: an unusable neighbor with which the Circuit holds an
+// Up adjacency takes that adjacency Down, and every other report is a
+// no-op.
+func (c *Circuit) applyUsable(now time.Time) {
+	c.usableMu.Lock()
+	reports := c.usable
+	c.usable = nil
+	c.usableMu.Unlock()
+
+	for _, r := range reports {
+		if a := c.adj; !r.usable && a != nil && a.neighbor == r.neighbor && a.state == AdjacencyUp {
+			c.down(now, DownNeighborUnusable)
+		}
+	}
+}
 
 // receive reports one PDU to the tap and applies a point to point hello
 // to the Circuit's adjacency at time now. A PDU which fails

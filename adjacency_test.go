@@ -497,3 +497,59 @@ func TestCircuitNeighborLeavesCommonLevel(t *testing.T) {
 		a.wantNoAdjacency(t)
 	})
 }
+
+func TestDownReasonString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		r    isis.DownReason
+		want string
+	}{
+		{
+			name: "none",
+			r:    0,
+			want: "none",
+		},
+		{
+			name: "holding time expired",
+			r:    isis.DownHoldingTimeExpired,
+			want: "holding time expired",
+		},
+		{
+			name: "circuit stopped",
+			r:    isis.DownCircuitStopped,
+			want: "circuit stopped",
+		},
+		{
+			name: "neighbor system ID changed",
+			r:    isis.DownNeighborSystemIDChanged,
+			want: "neighbor system ID changed",
+		},
+		{
+			name: "no level in common",
+			r:    isis.DownNoLevelInCommon,
+			want: "no level in common",
+		},
+		{
+			name: "neighbor unusable",
+			r:    isis.DownNeighborUnusable,
+			want: "neighbor unusable",
+		},
+		{
+			name: "unknown",
+			r:    6,
+			want: "unknown(6)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.r.String(); got != tt.want {
+				t.Fatalf("unexpected string: want %q, got %q", tt.want, got)
+			}
+		})
+	}
+}

@@ -22,7 +22,8 @@ it:
   and reports its state changes to `CircuitConfig.OnAdjacency`. With
   `CircuitConfig.Auth` set, it signs its hellos and verifies every PDU it
   receives with the [RFC 5304](https://www.rfc-editor.org/rfc/rfc5304)
-  HMAC-MD5 authentication TLV.
+  HMAC-MD5 authentication TLV. A caller's liveness check reports through
+  `Circuit.SetUsable`, and an unusable neighbor takes the adjacency Down.
 
 ## Scope
 
