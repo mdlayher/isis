@@ -25,6 +25,12 @@ interface {{.Interface}}
  isis circuit-type level-2
  isis hello-interval {{.HelloInterval}}
  isis hello-multiplier {{.HelloMultiplier}}
+{{- if .NoHelloPadding}}
+ no isis hello padding
+{{- end}}
+{{- if .MD5Password}}
+ isis password md5 {{.MD5Password}}
+{{- end}}
 exit
 !
 router isis lab

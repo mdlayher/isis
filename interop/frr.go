@@ -4,11 +4,14 @@ package interop
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/mdlayher/frrtest"
+	"github.com/mdlayher/isis"
 )
 
 // frrVersion pins the FRR oracle release, enforced against the daemons'
@@ -47,6 +50,15 @@ type frrConfig struct {
 	// HelloMultiplier its hello-multiplier: their product is the holding
 	// time FRR advertises to us.
 	HelloInterval, HelloMultiplier int
+
+	// NoHelloPadding turns FRR's default hello padding off. Left false,
+	// FRR pads to the interface MTU, which is the case a receive buffer
+	// sized to ISO 10589's ReceiveLSPBufferSize silently truncates.
+	NoHelloPadding bool
+
+	// MD5Password, if set, authenticates FRR's hellos with RFC 5304
+	// HMAC-MD5 under this interface password.
+	MD5Password string
 }
 
 // defaultFRRConfig is the configuration every scenario starts from.
@@ -60,17 +72,27 @@ func defaultFRRConfig() frrConfig {
 }
 
 // startFRR renders cfg and starts an FRR instance running it, torn down
-// when t ends. It returns once isisd is answering vtysh, failing t if ctx
-// ends first.
+// when t ends. It returns once isisd holds its IPv6 link-local address,
+// failing t if ctx ends first. isisd advertises the address only once
+// the kernel finishes duplicate address detection on it, so every hello a
+// host started afterward receives carries it.
 func startFRR(ctx context.Context, t *testing.T, cfg frrConfig) *frrtest.Instance {
 	t.Helper()
 
 	f := oracle.Start(ctx, t, oracle.Render(t, "testdata/frr.conf.tmpl", cfg))
 	if err := f.Poll(ctx, func() error {
-		var v json.RawMessage
-		return f.JSON(t, "show isis summary json", &v)
+		var ifs frrInterfaces
+		if err := f.JSON(t, "show isis interface detail json", &ifs); err != nil {
+			return err
+		}
+
+		if len(ifs.linkLocal(t)) == 0 {
+			return errors.New("isisd holds no IPv6 link-local address")
+		}
+
+		return nil
 	}); err != nil {
-		t.Fatalf("isisd never answered vtysh: %v", err)
+		t.Fatalf("isisd never gained its IPv6 link-local address: %v", err)
 	}
 
 	return f
@@ -161,4 +183,77 @@ func awaitAdjacency(ctx context.Context, t *testing.T, f *frrtest.Instance, stat
 	}
 
 	return got
+}
+
+// An frrInterfaces is the slice of `show isis interface detail json` this
+// suite reads: FRR's own view of the addresses it advertises.
+type frrInterfaces struct {
+	Areas []struct {
+		Circuits []struct {
+			Interface struct {
+				Name          string `json:"name"`
+				IPv6LinkLocal struct {
+					IPv6 string `json:"ipv6"`
+				} `json:"ipv6-link-locals"`
+			} `json:"interface"`
+		} `json:"circuits"`
+	} `json:"areas"`
+}
+
+// linkLocal returns the IPv6 link-local addresses ifs holds on
+// oracle.Peer, without their prefix lengths.
+func (ifs frrInterfaces) linkLocal(t *testing.T) []netip.Addr {
+	t.Helper()
+
+	var out []netip.Addr
+	for _, a := range ifs.Areas {
+		for _, c := range a.Circuits {
+			if c.Interface.Name != oracle.Peer || c.Interface.IPv6LinkLocal.IPv6 == "" {
+				continue
+			}
+
+			p, err := netip.ParsePrefix(c.Interface.IPv6LinkLocal.IPv6)
+			if err != nil {
+				t.Fatalf("failed to parse the link-local FRR reports: %v", err)
+			}
+
+			out = append(out, p.Addr())
+		}
+	}
+
+	return out
+}
+
+// frrLinkLocal returns the IPv6 link-local addresses f holds on
+// oracle.Peer, without their prefix lengths.
+func frrLinkLocal(t *testing.T, f *frrtest.Instance) []netip.Addr {
+	t.Helper()
+
+	var ifs frrInterfaces
+	if err := f.JSON(t, "show isis interface detail json", &ifs); err != nil {
+		t.Fatalf("failed to read FRR interfaces: %v", err)
+	}
+
+	return ifs.linkLocal(t)
+}
+
+// frrSNPA returns the link layer address of oracle.Peer, as zebra reports
+// it.
+func frrSNPA(t *testing.T, f *frrtest.Instance) isis.SNPA {
+	t.Helper()
+
+	var ifs map[string]struct {
+		HardwareAddress string `json:"hardwareAddress"`
+	}
+
+	if err := f.JSON(t, "show interface "+oracle.Peer+" json", &ifs); err != nil {
+		t.Fatalf("failed to read FRR's interface: %v", err)
+	}
+
+	mac, err := net.ParseMAC(ifs[oracle.Peer].HardwareAddress)
+	if err != nil || len(mac) != len(isis.SNPA{}) {
+		t.Fatalf("failed to parse the hardware address FRR reports: %q", ifs[oracle.Peer].HardwareAddress)
+	}
+
+	return isis.SNPA(mac)
 }
