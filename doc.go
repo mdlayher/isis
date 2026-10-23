@@ -12,7 +12,8 @@
 //     encoding.
 //   - [Transport] carries PDUs between one Circuit and the link it
 //     attaches to, with [ErrDropped] for a frame an implementation
-//     discards. [ListenEthernet] opens the Ethernet implementation.
+//     discards or a read its link going down interrupts. [ListenEthernet]
+//     opens the Ethernet implementation.
 //   - [Circuit] runs one system's attachment to a link over its
 //     [Transport], sending hellos and reporting every PDU in both
 //     directions to [CircuitConfig.OnPDU]. It forms one adjacency with its

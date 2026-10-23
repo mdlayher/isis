@@ -3,10 +3,9 @@
 // Package interop tests github.com/mdlayher/isis against a real IS-IS
 // implementation: FRRouting's isisd, the suite's oracle, hosted as native
 // daemons in unprivileged network namespaces by
-// github.com/mdlayher/frrtest. The oracle needs Linux, iproute2 on $PATH,
-// and zebra and isisd from exactly FRR frrVersion, since isisd learns its
-// interfaces through zebra. The repository's nix dev shell provides all
-// of it:
+// github.com/mdlayher/frrtest. The oracle needs Linux and zebra and isisd
+// from exactly FRR frrVersion, since isisd learns its interfaces through
+// zebra. The repository's nix dev shell provides both:
 //
 //	nix develop -c go test -tags interop -race ./interop
 //

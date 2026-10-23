@@ -13,8 +13,9 @@ it:
   and the typed TLV constructors and parsers, such as `AreaAddressesTLV` and
   `TLV.AreaAddresses`, with their binary encoding.
 - `Transport` carries PDUs between one Circuit and the link it attaches to,
-  with `ErrDropped` for a frame an implementation discards.
-  `ListenEthernet` opens the Ethernet implementation.
+  with `ErrDropped` for a frame an implementation discards or a read its
+  link going down interrupts. `ListenEthernet` opens the Ethernet
+  implementation.
 - `Circuit` runs one system's attachment to a link over its `Transport`,
   sending hellos and reporting every PDU in both directions to
   `CircuitConfig.OnPDU`. It forms one adjacency with its neighbor through
@@ -51,5 +52,4 @@ another implementation:
   Ethernet packet filter runs in a software BPF machine.
 - An interoperability suite behind the `interop` build tag runs FRRouting's
   isisd as an oracle in unprivileged network namespaces through
-  `github.com/mdlayher/frrtest`, and the nix dev shell supplies FRR and
-  iproute2.
+  `github.com/mdlayher/frrtest`, and the nix dev shell supplies FRR.

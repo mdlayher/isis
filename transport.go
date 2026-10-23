@@ -42,9 +42,11 @@ type Transport interface {
 }
 
 // ErrDropped reports a frame a Transport received and discarded, such as
-// one which failed its filtering. A ReadPDU error wrapping ErrDropped is
-// not terminal: the caller reads again. ReadPDU still blocks for a frame
-// before reporting a drop, never returning ErrDropped for an empty read,
-// and the count returned beside it is ignored. Wrap ErrDropped with the
-// reason, as in fmt.Errorf("%w: LLC header 0xaaaa03", ErrDropped).
+// one which failed its filtering, or a read the link interrupted without
+// ending the Transport, such as its interface going down. A ReadPDU error
+// wrapping ErrDropped is not terminal: the caller reads again. ReadPDU
+// still blocks for a frame or such an event before reporting a drop,
+// never returning ErrDropped when nothing happened, and the count
+// returned beside it is ignored. Wrap ErrDropped with the reason, as in
+// fmt.Errorf("%w: LLC header 0xaaaa03", ErrDropped).
 var ErrDropped = errors.New("isis: frame dropped")

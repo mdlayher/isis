@@ -9,12 +9,14 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/mdlayher/frrtest"
+	"github.com/mdlayher/frrtest/netns"
 	"github.com/mdlayher/isis"
 )
 
@@ -380,6 +382,73 @@ func TestFRRAdjacencyReformsAfterRestart(t *testing.T) {
 
 	if d := diff(t, wantFRRAdjacency(h2), awaitAdjacency(ctx, t, f, "Up")); d != "" {
 		t.Fatalf("unexpected FRR adjacency (-want +got):\n%s", d)
+	}
+}
+
+func TestFRRInterfaceBounce(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+
+	// This end's interface goes down under a running Circuit and comes
+	// back. A link down is silence rather than a failure: this end's
+	// adjacency times out on the holding time and re-forms on the same
+	// Circuit, which never stops.
+	f := startFRR(ctx, t, defaultFRRConfig())
+	h := startHost(ctx, t, f, hostConfig{})
+
+	h.waitAdjacency(ctx, t, isis.AdjacencyUp)
+	awaitAdjacency(ctx, t, f, "Up")
+
+	// Read while the link is up, since FRR's view of its own interface is
+	// what the event carries.
+	want := wantHostEvent(t, f, isis.AdjacencyDown)
+	want.Reason = isis.DownHoldingTimeExpired
+
+	t.Cleanup(func() {
+		if err := netns.LinkUp(oracle.Host); err != nil {
+			t.Errorf("failed to set %s up: %v", oracle.Host, err)
+		}
+	})
+
+	if err := netns.LinkDown(oracle.Host); err != nil {
+		t.Fatalf("failed to set %s down: %v", oracle.Host, err)
+	}
+
+	if d := diff(t, want, h.waitAdjacency(ctx, t, isis.AdjacencyDown)); d != "" {
+		t.Fatalf("unexpected adjacency event (-want +got):\n%s", d)
+	}
+
+	// FRR's end of the veth loses carrier, so FRR takes its circuit down
+	// and deletes the adjacency rather than waiting out the holding time.
+	if err := f.Poll(ctx, func() error {
+		if adjs := adjacencies(t, f); len(adjs) != 0 {
+			return fmt.Errorf("FRR holds %d adjacencies: %+v", len(adjs), adjs)
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatalf("FRR never dropped the adjacency: %v", err)
+	}
+
+	if err := netns.LinkUp(oracle.Host); err != nil {
+		t.Fatalf("failed to set %s up: %v", oracle.Host, err)
+	}
+
+	h.waitAdjacency(ctx, t, isis.AdjacencyUp)
+
+	// The adjacency FRR re-forms is a new one, so it reports one flap.
+	if d := diff(t, wantFRRAdjacency(h), awaitAdjacency(ctx, t, f, "Up")); d != "" {
+		t.Fatalf("unexpected FRR adjacency (-want +got):\n%s", d)
+	}
+
+	// The hellos sent while the link was down failed, and the tap
+	// reported each failure rather than the Circuit stopping on it.
+	if !slices.ContainsFunc(h.tap(), func(e isis.PDUEvent) bool {
+		return e.Direction == isis.DirectionSent && errors.Is(e.Err, syscall.ENETDOWN)
+	}) {
+		t.Fatal("the tap reported no hello failing with the link down")
 	}
 }
 

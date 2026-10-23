@@ -3,6 +3,7 @@
 package isis
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"slices"
@@ -145,6 +146,13 @@ func (e *EthernetTransport) ReadPDU(b []byte) (int, SNPA, error) {
 
 	n, addr, err := e.c.ReadFrom(e.rb)
 	if err != nil {
+		// The kernel reports the interface going down once, and the socket
+		// stays valid and reads again when it comes back up, so a link down
+		// is silence for the holding timer rather than a failure.
+		if errors.Is(err, unix.ENETDOWN) {
+			return 0, SNPA{}, fmt.Errorf("%w: network is down", ErrDropped)
+		}
+
 		return 0, SNPA{}, err
 	}
 
