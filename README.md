@@ -39,7 +39,8 @@ elsewhere, it returns an error which wraps `errors.ErrUnsupported`.
 
 ## Testing
 
-The package is tested against the standards and against itself:
+The package is tested against the standards, against itself, and against
+another implementation:
 
 - Codec tests encode and parse a hello assembled octet by octet from
   ISO 10589 and the RFCs defining its TLVs, requiring a byte-for-byte round
@@ -48,3 +49,7 @@ The package is tested against the standards and against itself:
   the HMAC-MD5 digest.
 - `Transport` conformance tests run against an in-memory link, and the
   Ethernet packet filter runs in a software BPF machine.
+- An interoperability suite behind the `interop` build tag runs FRRouting's
+  isisd as an oracle in unprivileged network namespaces through
+  `github.com/mdlayher/frrtest`, and the nix dev shell supplies FRR and
+  iproute2.

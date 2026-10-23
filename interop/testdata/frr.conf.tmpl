@@ -1,0 +1,35 @@
+! Rendered by the interop suite from an frrConfig; see frr.go.
+!
+! Deliberate stances baked in rather than rediscovered per scenario:
+! - isis network point-to-point on the harness interface. RFC 5309
+!   requires both ends to agree and a mismatch is silent by design, so
+!   the one circuit type this library implements is always set.
+! - Short hello timers, so a holding time costs seconds rather than the
+!   ISO default's half minute.
+! - No topology ipv6-unicast. This library is single topology, and
+!   multi-topology negotiation is not a precondition for an adjacency.
+! - Hello padding left at FRR's default of always, so every scenario
+!   receives the interface-MTU hellos which a receive buffer sized to
+!   ISO's 1492 would silently truncate.
+! - debug isis adj-packets and events, so a failure has a transcript.
+frr defaults traditional
+hostname frr-interop
+log stdout
+debug isis adj-packets
+debug isis events
+!
+interface {{.Interface}}
+ ip router isis lab
+ ipv6 router isis lab
+ isis network point-to-point
+ isis circuit-type level-2
+ isis hello-interval {{.HelloInterval}}
+ isis hello-multiplier {{.HelloMultiplier}}
+exit
+!
+router isis lab
+ net {{.NET}}
+ is-type level-2-only
+ metric-style wide
+ hostname dynamic
+exit

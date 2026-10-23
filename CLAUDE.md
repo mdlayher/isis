@@ -16,7 +16,20 @@ Run these on every Go change, alongside `go build` and `go test`:
   miss)
 
 This repository is a single module: `./...` from the root covers
-everything.
+everything except the interop suite, whose files sit behind a build tag
+the plain gate never sees. Vet them explicitly:
+
+- `go vet -tags interop ./interop`
+
+The suite drives FRRouting's isisd as an oracle in unprivileged network
+namespaces, using the FRR and iproute2 that `flake.nix` supplies:
+
+```
+nix develop -c go test -tags interop -race ./interop
+```
+
+`flake.lock` pins the FRR, which must match `frrVersion` in
+`interop/frr.go`.
 
 ## Code style
 

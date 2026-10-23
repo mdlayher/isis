@@ -1,0 +1,62 @@
+name: Interop
+
+# Interop tests drive a real IS-IS implementation, FRRouting's isisd,
+# against this module. The oracle runs as native daemons in unprivileged
+# network namespaces, and flake.nix supplies both it and the Go toolchain,
+# so CI runs exactly what `nix develop` runs on a developer machine. The
+# tests live behind the interop build tag and a separate workflow so the
+# Test workflow stays hermetic and fast.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Superseded runs on the same ref are pointless; cancel them. Never cancel
+# main, matching the Test workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  interop:
+    name: FRR interop
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Allow unprivileged user namespaces
+        # Ubuntu 24.04 restricts unprivileged user namespace creation to
+        # binaries with an AppArmor profile, and the test binary
+        # re-executes itself into one through frrtest's netns rig. The
+        # sysctl only exists where the restriction does, so a missing knob
+        # is fine: the restriction is absent with it.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: go vet
+        # The Test workflow's vet and staticcheck legs never see the tagged
+        # interop files, so vet them here.
+        run: nix develop --command go vet -tags interop ./interop
+
+      - name: go test
+        env:
+          # The harness saves each FRR instance's logs here on teardown,
+          # so a failure's diagnostics survive as an artifact.
+          ISIS_INTEROP_LOGDIR: ${{ runner.temp }}/interop-logs
+        run: nix develop --command go test -tags interop -race -v ./interop
+
+      - name: Upload FRR logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop-frr-logs
+          path: ${{ runner.temp }}/interop-logs/
+          if-no-files-found: ignore

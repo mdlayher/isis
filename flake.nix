@@ -21,6 +21,13 @@
             # go.mod's language version floor is what this must
             # satisfy; bump alongside it.
             pkgs.go_1_27
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            # The interop suite's oracle and the iproute2 its harness
+            # needs. This FRR must match the frrVersion pin in
+            # interop/frr.go, and flake.lock is what holds it there.
+            pkgs.frr
+            pkgs.iproute2
           ];
         };
       });
